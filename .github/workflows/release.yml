@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+        type: string
+      flavor:
+        description: 'Build flavor (minimal|standard|full)'
+        required: false
+        default: standard
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: cross-platform release
+    runs-on: ubuntu-latest
+    env:
+      # Resolve once into env vars so downstream steps can use shell quoting.
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      RELEASE_FLAVOR: ${{ github.event.inputs.flavor || 'standard' }}
+    steps:
+      - name: Resolve checkout ref
+        id: checkout-ref
+        env:
+          REF: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          # Pass the tag through an env-var so it can never be interpolated
+          # into the shell as code; the value lands in steps.checkout-ref.outputs.ref.
+          printf 'ref=%s\n' "$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.checkout-ref.outputs.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          tag="$RELEASE_TAG"
+          # Strip the leading "v" so archive names use 0.1.0 instead of v0.1.0.
+          version="${tag#v}"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run formatting + tests before tagging
+        run: ./scripts/check.sh
+
+      - name: Build cross-platform release archives
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./scripts/release.sh \
+            --version "$VERSION" \
+            --flavor "$RELEASE_FLAVOR" \
+            --output-dir dist
+
+      - name: Upload release artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: y-${{ steps.version.outputs.version }}-${{ env.RELEASE_FLAVOR }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd dist
+          # Best-effort: create the release if missing, otherwise attach to
+          # an existing release for re-runs.
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --generate-notes \
+              SHA256SUMS *.tar.gz *.zip
+          else
+            gh release upload "$RELEASE_TAG" \
+              SHA256SUMS *.tar.gz *.zip --clobber
+          fi

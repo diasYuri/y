@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: gofmt + go vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        # The check.sh wrapper exits non-zero whenever gofmt -l reports any
+        # paths, which is exactly what enforces the formatting gate.
+        run: ./scripts/check.sh fmt
+
+      - name: go vet
+        run: ./scripts/check.sh vet
+
+  test:
+    name: go test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test
+        if: runner.os != 'Windows'
+        run: ./scripts/check.sh test
+
+      - name: go test (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/check.sh test
+
+      - name: go test with all feature tags
+        if: runner.os != 'Windows'
+        run: ./scripts/check.sh test-all
+
+      - name: go test with all feature tags (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/check.sh test-all
+
+  build-by-tag:
+    name: build (${{ matrix.flavor }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        # The build job exercises each reference flavor so a missing build tag
+        # combination is caught before release tagging.
+        flavor: [minimal, standard, full]
+    env:
+      FLAVOR: ${{ matrix.flavor }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build all binaries (host platform, ${{ matrix.flavor }})
+        run: ./scripts/build.sh --binary all --flavor "$FLAVOR"
+
+      - name: Show binary metadata (y)
+        run: |
+          out="bin/y-${FLAVOR}-$(go env GOOS)-$(go env GOARCH)"
+          if [ -x "$out" ]; then
+            "$out" --version || true
+            "$out" features || true
+          else
+            echo "skip: $out is not present in this flavor" >&2
+          fi

@@ -1,0 +1,34 @@
+# Build outputs
+/bin/
+/dist/
+/bin-test/
+/dist-test/
+/y
+
+# Go caches and extraction scratch
+/.gocache/
+/.gomodcache/
+/.extract/
+/.charmdl/
+
+# Stray module scratch files
+/*.mod
+!/go.mod
+
+# Test outputs
+*.test
+/tools.test
+
+# Profile outputs
+*.out
+*.prof
+
+# OS / editor scratch
+.DS_Store
+*~
+.idea/
+.vscode/
+
+# Local agent state from `y`
+.baseline-agent/
+.y/

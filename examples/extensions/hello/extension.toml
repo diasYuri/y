@@ -1,0 +1,16 @@
+id = "y.examples.hello"
+name = "Hello"
+version = "0.1.0"
+api_version = "pi.wasm.v1"
+entry = "module.wasm"
+
+[runtime]
+memory_pages = 16
+timeout_ms = 1000
+
+[capabilities]
+y_tools = false
+
+[[tools]]
+name = "hello_say"
+description = "Returns a greeting for the supplied name."

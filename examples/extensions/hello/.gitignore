@@ -1,0 +1,2 @@
+# Built artefacts produced by tinygo/build.sh.
+module.wasm

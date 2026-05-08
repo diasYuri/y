@@ -1,0 +1,16 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/yuri/y/pkg/tools
+cpu: Apple M1 Pro
+BenchmarkSearchLiteralAcrossDir-8     	    1682	    412842 ns/op	   43866 B/op	     352 allocs/op
+BenchmarkSearchLiteralIgnoreCase-8    	    1549	    373995 ns/op	   44125 B/op	     353 allocs/op
+BenchmarkSearchRegexp-8               	    1500	    417904 ns/op	   46897 B/op	     378 allocs/op
+BenchmarkLiteralMatcherIgnoreCase-8   	23474370	        26.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkApplyPatchFile-8             	    5732	    106800 ns/op	  204800 B/op	       3 allocs/op
+BenchmarkUnifiedDiff-8                	   18396	     33042 ns/op	   37888 B/op	       3 allocs/op
+BenchmarkSplitLinesKeepNewline-8      	    6392	     90853 ns/op	   81920 B/op	       1 allocs/op
+BenchmarkStreamCaptureSmallChunks-8   	   45044	     12639 ns/op	5185.26 MB/s	  131168 B/op	       4 allocs/op
+BenchmarkStreamCaptureLargeChunk-8    	    3018	    188353 ns/op	5567.08 MB/s	 2097248 B/op	       4 allocs/op
+BenchmarkStreamCaptureTruncated-8     	  144799	      4390 ns/op	955485.31 MB/s	   65632 B/op	       3 allocs/op
+PASS
+ok  	github.com/yuri/y/pkg/tools	7.621s
