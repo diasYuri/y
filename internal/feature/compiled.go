@@ -23,13 +23,7 @@ func RegisterCompiledFeatures(r *Registry) error {
 	if err := registerLSPIfCompiled(r); err != nil {
 		return err
 	}
-	if err := registerMomIfCompiled(r); err != nil {
-		return err
-	}
 	if err := registerOpenAIIfCompiled(r); err != nil {
-		return err
-	}
-	if err := registerPodsIfCompiled(r); err != nil {
 		return err
 	}
 	if err := registerRPCIfCompiled(r); err != nil {

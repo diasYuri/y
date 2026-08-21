@@ -9,7 +9,7 @@
 #   scripts/build.sh [options]
 #
 # Options:
-#   --binary <name>    Binary to build (y|y-mom|y-pods|all). Default: y.
+#   --binary <name>    Binary to build (y|all). Default: y.
 #   --flavor <name>    Build flavor (minimal|standard|full|custom). Default: standard.
 #   --tags "<tags>"    Override build tags (forces flavor=custom).
 #   --os <list>        Comma-separated GOOS list. Default: host OS.
@@ -48,12 +48,8 @@ matrix_targets=(
 flavor_tags_minimal_y="feature_fs feature_openai"
 
 flavor_tags_standard_y="feature_fs feature_git feature_shell feature_openai feature_anthropic feature_google feature_local"
-flavor_tags_standard_y_mom="feature_mom feature_anthropic feature_openai"
-flavor_tags_standard_y_pods="feature_pods"
 
 flavor_tags_full_y="feature_fs feature_git feature_shell feature_openai feature_anthropic feature_google feature_local feature_lsp feature_rpc feature_telemetry feature_wasm_ext feature_storage_sqlite"
-flavor_tags_full_y_mom="feature_mom feature_anthropic feature_openai"
-flavor_tags_full_y_pods="feature_pods"
 
 binary=y
 flavor=standard
@@ -143,13 +139,13 @@ fi
 binary_list=()
 case "${binary}" in
 	all)
-		binary_list=(y y-mom y-pods)
+		binary_list=(y)
 		;;
-	y|y-mom|y-pods)
+	y)
 		binary_list=("${binary}")
 		;;
 	*)
-		echo "build.sh: unsupported --binary: ${binary} (expected y|y-mom|y-pods|all)" >&2
+		echo "build.sh: unsupported --binary: ${binary} (expected y|all)" >&2
 		exit 2
 		;;
 esac

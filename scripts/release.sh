@@ -16,8 +16,7 @@
 #   --skip-build       Reuse existing binaries instead of invoking build.sh.
 #   --help             Show this help.
 #
-# Each archive contains:
-#   y[-flavor], y-mom, y-pods (when their flavor compiles them)
+# Each archive contains the primary y binary when it is built for the flavor.
 #   LICENSE
 #   docs/release.md
 #   docs/migration-from-pi.md
@@ -159,7 +158,7 @@ archive_one() {
 	mkdir -p "${stage}"
 
 	local found_binary=0
-	for bin in y y-mom y-pods; do
+	for bin in y; do
 		local src="${REPO_ROOT}/${bin_dir}/$(binary_name "${bin}" "${flv}" "${goos}" "${goarch}")"
 		if [ ! -f "${src}" ]; then
 			continue

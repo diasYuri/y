@@ -50,9 +50,8 @@ run_test() {
 }
 
 # Tag set covering every feature_* in internal/feature/catalog.go. Running tests
-# under this set ensures tag-gated code (WASM host, mom/pods bundles)
-# stays compilable.
-all_feature_tags="feature_fs feature_git feature_shell feature_lsp feature_rpc feature_telemetry feature_mom feature_pods feature_wasm_ext feature_openai feature_anthropic feature_google feature_local feature_storage_sqlite"
+# under this set ensures tag-gated code stays compilable.
+all_feature_tags="feature_fs feature_git feature_shell feature_lsp feature_rpc feature_telemetry feature_wasm_ext feature_openai feature_anthropic feature_google feature_local feature_storage_sqlite"
 
 run_test_all() {
 	echo "check.sh: go test ./... -tags=\"${all_feature_tags}\""

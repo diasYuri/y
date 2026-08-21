@@ -7,7 +7,7 @@ SHELL := /usr/bin/env bash
 GO ?= go
 
 # Default flavor and binary; override on the command line, e.g.
-#   make build BINARY=y-pods FLAVOR=full
+#   make build BINARY=y FLAVOR=full
 BINARY ?= y
 FLAVOR ?= standard
 VERSION ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)

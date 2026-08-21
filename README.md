@@ -11,8 +11,6 @@ compiled with `feature_wasm_ext`.
 ## Layout
 
 - `cmd/y`: primary CLI entrypoint.
-- `cmd/y-mom`: optional Slack automation product (`feature_mom`).
-- `cmd/y-pods`: optional GPU pod / vLLM management product (`feature_pods`).
 - `internal`: non-public infrastructure (config, features, diagnostics,
   policy, logging, storage, build info).
 - `pkg`: public-style packages for agent, AI types, providers, tools,
@@ -33,7 +31,6 @@ compiled with `feature_wasm_ext`.
 - `docs/sessions.md` — on-disk session format.
 - `docs/git-workflows.md` — git-tool safety rules.
 - `docs/wasm-extensions.md` — extension host, ABI, capabilities, and CLI.
-- `docs/y-mom.md` — secondary product docs.
 - `docs/performance/memory-hardening.md` — hot-path memory guidance.
 - `docs/baseline/` — pi-mono inventory, behaviour matrix, gaps, and
   benchmark plan.

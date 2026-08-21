@@ -16,7 +16,7 @@ import (
 	"github.com/yuri/y/pkg/providers"
 )
 
-// fakeProvider implements providers.Provider for tests.
+// fakeProvider implements agent.Provider for tests.
 type fakeProvider struct {
 	models []ai.Model
 }

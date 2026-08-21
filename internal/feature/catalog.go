@@ -37,8 +37,6 @@ var knownCapabilities = []Descriptor{
 	{Kind: KindFeature, ID: "filesystem", BuildTag: "feature_fs", Description: "Filesystem tools."},
 	{Kind: KindFeature, ID: "git", BuildTag: "feature_git", Description: "Git integration."},
 	{Kind: KindFeature, ID: "lsp", BuildTag: "feature_lsp", Description: "Language server integration."},
-	{Kind: KindFeature, ID: "mom", BuildTag: "feature_mom", Description: "Slack automation product."},
-	{Kind: KindFeature, ID: "pods", BuildTag: "feature_pods", Description: "Pods management product."},
 	{Kind: KindFeature, ID: "rpc", BuildTag: "feature_rpc", Description: "RPC/headless mode."},
 	{Kind: KindFeature, ID: "shell", BuildTag: "feature_shell", Description: "Subprocess execution."},
 	{Kind: KindFeature, ID: "storage_sqlite", BuildTag: "feature_storage_sqlite", Description: "SQLite session storage backend."},

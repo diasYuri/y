@@ -14,7 +14,6 @@ import (
 
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
 	"github.com/yuri/y/pkg/tools"
 )
 
@@ -22,7 +21,7 @@ import (
 type ServerConfig struct {
 	Addr         string
 	Log          io.Writer
-	Provider     providers.Provider
+	Provider     agent.Provider
 	ToolRegistry *tools.Registry
 	Model        ai.Model
 	SystemPrompt string
