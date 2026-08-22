@@ -22,7 +22,7 @@ type BuildInfo = buildinfo.Info
 func Run(stdout, stderr io.Writer, args []string, info BuildInfo) int {
 	compiled := feature.NewRegistry()
 	if err := feature.RegisterCompiledFeatures(compiled); err != nil {
-		fmt.Fprintf(stderr, "y: failed to register compiled features: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "y: failed to register compiled features: %v\n", err)
 		return 1
 	}
 
@@ -36,7 +36,7 @@ func Run(stdout, stderr io.Writer, args []string, info BuildInfo) int {
 		printUsage(stdout, info, compiled)
 		return 0
 	case "-v", "--version":
-		fmt.Fprintln(stdout, info.Version)
+		_, _ = fmt.Fprintln(stdout, info.Version)
 		return 0
 	case "version":
 		return runVersion(stdout, stderr, args[1:], info, compiled)
@@ -63,19 +63,19 @@ func Run(stdout, stderr io.Writer, args []string, info BuildInfo) int {
 	case "chat":
 		return runChat(stdout, stderr, os.Stdin, isTerminal(os.Stdin), args[1:], info, compiled)
 	default:
-		fmt.Fprintf(stderr, "y: unknown command %q\n", args[0])
-		fmt.Fprintln(stderr, "Run `y --help` for usage.")
+		_, _ = fmt.Fprintf(stderr, "y: unknown command %q\n", args[0])
+		_, _ = fmt.Fprintln(stderr, "Run `y --help` for usage.")
 		return 2
 	}
 }
 
 func printUsage(w io.Writer, info BuildInfo, compiled *feature.Registry) {
-	fmt.Fprintf(w, "y %s\n\n", info.Version)
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  y [command]")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Commands:")
-	fmt.Fprintln(w, "  help             Show this help.")
+	_, _ = fmt.Fprintf(w, "y %s\n\n", info.Version)
+	_, _ = fmt.Fprintln(w, "Usage:")
+	_, _ = fmt.Fprintln(w, "  y [command]")
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Commands:")
+	_, _ = fmt.Fprintln(w, "  help             Show this help.")
 	fmt.Fprintln(w, "  version          Show build version.")
 	fmt.Fprintln(w, "  features         List compiled and unavailable capabilities.")
 	fmt.Fprintln(w, "  config validate  Validate declarative configuration.")
@@ -111,7 +111,7 @@ func runFeatures(stdout, stderr io.Writer, args []string, compiled *feature.Regi
 			printFeaturesUsage(stdout)
 			return 0
 		}
-		fmt.Fprintf(stderr, "y features: unexpected argument %q\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "y features: unexpected argument %q\n", args[0])
 		return 2
 	}
 
@@ -126,7 +126,7 @@ func runFeatures(stdout, stderr io.Writer, args []string, compiled *feature.Regi
 		if buildTag == "" {
 			buildTag = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", status.Kind, status.ID, compiledText, buildTag, status.Description)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", status.Kind, status.ID, compiledText, buildTag, status.Description)
 	}
 	_ = tw.Flush()
 	return 0

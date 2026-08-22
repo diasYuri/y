@@ -423,10 +423,7 @@ func looksLikeShellCommand(cmd string) bool {
 	}
 	// Contains shell metacharacters even without spaces (e.g. "a&&b").
 	const shellMeta = "|&;<>()$`\"'*?[]{}"
-	if strings.ContainsAny(cmd, shellMeta) {
-		return true
-	}
-	return false
+	return strings.ContainsAny(cmd, shellMeta)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -446,6 +443,4 @@ func secondsToDuration(seconds int64) time.Duration {
 }
 
 // ioCopy is defined in a small wrapper so tests can replace it if needed.
-var ioCopy = func(dst io.Writer, src io.Reader) (int64, error) {
-	return io.Copy(dst, src)
-}
+var ioCopy = io.Copy

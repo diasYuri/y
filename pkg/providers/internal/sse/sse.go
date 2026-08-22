@@ -4,6 +4,7 @@ package sse
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -20,7 +21,7 @@ func ReadData(r *bufio.Reader, maxEventBytes int64) ([]byte, error) {
 	for {
 		line, err := readLine(r, maxEventBytes)
 		if err != nil {
-			if err == io.EOF && data.Len() > 0 {
+			if errors.Is(err, io.EOF) && data.Len() > 0 {
 				return data.Bytes(), nil
 			}
 			return nil, err
@@ -57,7 +58,7 @@ func readLine(r *bufio.Reader, maxEventBytes int64) ([]byte, error) {
 			}
 			out.Write(part)
 		}
-		if err == bufio.ErrBufferFull {
+		if errors.Is(err, bufio.ErrBufferFull) {
 			continue
 		}
 		if err != nil {

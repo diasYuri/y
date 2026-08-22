@@ -57,7 +57,7 @@ func TestErrorEventErrorAllEmpty(t *testing.T) {
 func TestErrorEventUnwrap(t *testing.T) {
 	inner := errors.New("wrapped")
 	e := ErrorEvent{Err: inner}
-	if got := e.Unwrap(); got != inner {
+	if got := e.Unwrap(); !errors.Is(got, inner) {
 		t.Fatalf("Unwrap() = %v, want %v", got, inner)
 	}
 }
@@ -78,7 +78,7 @@ func TestNewErrorEventWithError(t *testing.T) {
 	if e.Message != "boom" {
 		t.Fatalf("Message = %q, want %q", e.Message, "boom")
 	}
-	if e.Err != inner {
+	if !errors.Is(e.Err, inner) {
 		t.Fatal("Err not identical to input")
 	}
 }

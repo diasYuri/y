@@ -45,13 +45,23 @@ func (e *Error) Unwrap() error {
 
 // LoadFile reads a TOML config file from path.
 func LoadFile(path string) (Config, error) {
+	return LoadFileWithLookup(path, os.Getenv)
+}
+
+// LoadFileWithLookup reads a configuration file and applies environment
+// overrides using lookup. It is useful for deterministic application tests.
+func LoadFileWithLookup(path string, lookup func(string) string) (Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return Config{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
-	return Parse(f)
+	cfg, err := Parse(f)
+	if err != nil {
+		return Config{}, err
+	}
+	return ApplyEnvironment(cfg, lookup), nil
 }
 
 // Parse reads the subset of TOML used by y's declarative config. It supports
@@ -132,15 +142,21 @@ func Parse(r io.Reader) (Config, error) {
 		return Config{}, err
 	}
 
-	// Environment overrides for runtime flags not expressed in TOML.
-	if v := os.Getenv("Y_OFFLINE"); v != "" {
+	return cfg, nil
+}
+
+// ApplyEnvironment applies runtime overrides not expressed in TOML.
+func ApplyEnvironment(cfg Config, lookup func(string) string) Config {
+	if lookup == nil {
+		lookup = os.Getenv
+	}
+	if v := lookup("Y_OFFLINE"); v != "" {
 		cfg.OfflineMode = parseEnvBool(v)
 	}
-	if v := os.Getenv("Y_TELEMETRY"); v != "" {
+	if v := lookup("Y_TELEMETRY"); v != "" {
 		cfg.Telemetry = parseEnvBool(v)
 	}
-
-	return cfg, nil
+	return cfg
 }
 
 func parseEnvBool(v string) bool {

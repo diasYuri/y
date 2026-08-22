@@ -12,14 +12,15 @@ BINARY ?= y
 FLAVOR ?= standard
 VERSION ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: all check fmt vet test test-all build build-all matrix release clean help models
+.PHONY: all check fmt lint vet test test-all build build-all matrix release clean help models
 
 all: check build
 
 help:
 	@echo "Targets:"
-	@echo "  check       gofmt + go vet + go test + tagged tests"
+	@echo "  check       gofmt + lint + go vet + go test + tagged tests"
 	@echo "  fmt         gofmt -l (fails on diffs)"
+	@echo "  lint        golangci-lint ./..."
 	@echo "  vet         go vet ./..."
 	@echo "  test        go test ./..."
 	@echo "  test-all    go test ./... with every feature_* tag"
@@ -34,6 +35,9 @@ check:
 
 fmt:
 	@./scripts/check.sh fmt
+
+lint:
+	@./scripts/check.sh lint
 
 vet:
 	@./scripts/check.sh vet

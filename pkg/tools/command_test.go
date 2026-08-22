@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	policypkg "github.com/yuri/y/internal/policy"
+	policypkg "github.com/yuri/y/pkg/policy"
 )
 
 func TestRunCommandRequiresApproval(t *testing.T) {

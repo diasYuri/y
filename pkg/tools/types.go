@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	policypkg "github.com/yuri/y/internal/policy"
+	"github.com/yuri/y/pkg/policy"
 )
 
 // Capability names a permission a tool needs before it can run.
@@ -69,11 +69,11 @@ type ToolDescriptor struct {
 
 // ToolRequest is the normalized invocation passed to a tool handler.
 type ToolRequest struct {
-	ID            string                        `json:"id,omitempty"`
-	Name          string                        `json:"name"`
-	Arguments     json.RawMessage               `json:"arguments,omitempty"`
-	WorkspaceRoot string                        `json:"workspace_root,omitempty"`
-	Approval      *policypkg.ApprovalResolution `json:"approval,omitempty"`
+	ID            string                     `json:"id,omitempty"`
+	Name          string                     `json:"name"`
+	Arguments     json.RawMessage            `json:"arguments,omitempty"`
+	WorkspaceRoot string                     `json:"workspace_root,omitempty"`
+	Approval      *policy.ApprovalResolution `json:"approval,omitempty"`
 }
 
 // ToolResponse is the structured result returned by a tool.

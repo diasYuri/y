@@ -12,11 +12,12 @@ import (
 
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/providers/providertest"
 	"github.com/yuri/y/pkg/tools"
 )
 
 func TestSubscribeUnsubscribe(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "hi"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -48,7 +49,7 @@ func TestSubscribeUnsubscribe(t *testing.T) {
 }
 
 func TestSnapshotRestoreRoundTrip(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "hello"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -97,7 +98,7 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("Unmarshal error: %v", err)
 	}
 
-	provider2 := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider2 := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "ack"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -119,7 +120,7 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 func TestBeforeRequestShortCircuits(t *testing.T) {
 	// The provider should never be called if BeforeRequest returns a hooked
 	// response.
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "should not be used"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -156,7 +157,7 @@ func TestBeforeRequestShortCircuits(t *testing.T) {
 }
 
 func TestAfterRequestObservesUsage(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "ok"},
 			ai.UsageEvent{Usage: ai.Usage{InputTokens: 7, OutputTokens: 11, TotalTokens: 18}},
@@ -180,13 +181,13 @@ func TestAfterRequestObservesUsage(t *testing.T) {
 
 func TestOnErrorClassifiesRetry(t *testing.T) {
 	// First response returns an error, second succeeds.
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.ErrorEvent{Err: errors.New("transient"), Code: "transient"},
 			},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "recovered"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -221,13 +222,13 @@ func TestRecoverFromTransientFailure(t *testing.T) {
 	// First call fails with EOF (transient), second succeeds. With
 	// MaxRetries=0 the first run fails. Recover should re-execute with the
 	// next response.
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.ErrorEvent{Err: errors.New("io: EOF: temporary"), Code: "transient"},
 			},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "second time"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -260,8 +261,8 @@ func TestRecoverFromTransientFailure(t *testing.T) {
 func TestToolConcurrencyLimit(t *testing.T) {
 	// Provider emits 4 tool calls; concurrency limit = 2; verify max in-flight
 	// never exceeds 2.
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.ToolCallEvent{ContentIndex: 0, ToolCall: ai.ToolCall{ID: "1", Name: "slow", Arguments: json.RawMessage(`{}`)}, Complete: true},
 				ai.ToolCallEvent{ContentIndex: 1, ToolCall: ai.ToolCall{ID: "2", Name: "slow", Arguments: json.RawMessage(`{}`)}, Complete: true},
@@ -270,7 +271,7 @@ func TestToolConcurrencyLimit(t *testing.T) {
 				ai.StopEvent{Reason: ai.StopReasonToolUse},
 			},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "done"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -309,14 +310,14 @@ func TestToolConcurrencyLimit(t *testing.T) {
 }
 
 func TestToolTimeoutReturnsError(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.ToolCallEvent{ContentIndex: 0, ToolCall: ai.ToolCall{ID: "1", Name: "block", Arguments: json.RawMessage(`{}`)}, Complete: true},
 				ai.StopEvent{Reason: ai.StopReasonToolUse},
 			},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "after"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -372,7 +373,7 @@ func TestStreamOptionsMergePrecedence(t *testing.T) {
 
 func TestRunWithOptionsPropagates(t *testing.T) {
 	prov := &capturingProvider{
-		FakeProvider: providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+		FakeProvider: providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "ok"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -401,7 +402,7 @@ func TestRunWithOptionsPropagates(t *testing.T) {
 func TestUsageObserverFiresEstimateOrigin(t *testing.T) {
 	// Provider does not emit a UsageEvent so the agent should fall back to
 	// estimation and tag UsageEstimated.
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "estimating"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -433,7 +434,7 @@ func TestUsageObserverFiresEstimateOrigin(t *testing.T) {
 }
 
 func TestUsageObserverFiresReportedOrigin(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "reported"},
 			ai.UsageEvent{Usage: ai.Usage{InputTokens: 5, OutputTokens: 7, TotalTokens: 12}},

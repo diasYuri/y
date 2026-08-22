@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	schema := `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -84,7 +85,7 @@ func (s *SQLiteStore) List(ctx context.Context, cwd string) ([]SessionSummary, e
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	rows, err := db.QueryContext(ctx, `
 		SELECT s.id, s.cwd, s.created_at, s.modified_at, s.truncated, COUNT(m.seq)
@@ -96,7 +97,7 @@ func (s *SQLiteStore) List(ctx context.Context, cwd string) ([]SessionSummary, e
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SessionSummary
 	for rows.Next() {
@@ -143,11 +144,11 @@ func (s *SQLiteStore) Resolve(ctx context.Context, cwd, target string) (string, 
 	if err != nil {
 		return "", err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var id string
 	err = db.QueryRowContext(ctx, `SELECT id FROM sessions WHERE cwd = ? AND (id = ? OR id LIKE ? || '%') ORDER BY modified_at DESC LIMIT 1`, cwd, target, target).Scan(&id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", os.ErrNotExist
 	}
 	if err != nil {
@@ -165,7 +166,7 @@ func (s *SQLiteStore) SaveTranscript(ctx context.Context, cwd string, messages [
 	if err != nil {
 		return SessionSummary{}, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	now := s.now
 	if now == nil {
@@ -178,7 +179,7 @@ func (s *SQLiteStore) SaveTranscript(ctx context.Context, cwd string, messages [
 	if err != nil {
 		return SessionSummary{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO sessions (id, cwd, created_at, modified_at, truncated) VALUES (?, ?, ?, ?, 0)`,
@@ -226,14 +227,14 @@ func (s *SQLiteStore) ReadTranscript(ctx context.Context, sessionID string) ([]a
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT role, content, tool_calls, tool_result FROM messages WHERE session_id = ? ORDER BY seq`, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []ai.Message
 	for rows.Next() {

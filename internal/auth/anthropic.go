@@ -101,7 +101,7 @@ func exchangeToken(ctx context.Context, tokenURL, clientID, redirectURI, code, v
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -157,7 +157,7 @@ func AnthropicRefresh(ctx context.Context, refreshToken string) (*Credentials, e
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

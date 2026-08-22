@@ -7,6 +7,12 @@ import (
 	"github.com/yuri/y/pkg/providers"
 )
 
+// ToolCallHook is called before or after a tool executes.
+// The returned error blocks execution for before hooks and is logged for
+// after hooks. For before hooks result is nil; for after hooks it contains the
+// tool result.
+type ToolCallHook func(ctx context.Context, call ai.ToolCall, result *ai.ToolResult) error
+
 // BeforeRequestHook is called before each provider Stream call.
 //
 // Hooks may inspect or rewrite the outgoing request via the *providers.StreamRequest

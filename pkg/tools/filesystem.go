@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yuri/y/internal/gitignore"
+	"github.com/yuri/y/pkg/tools/gitignore"
 )
 
 // FilesystemOptions configures the built-in filesystem tools.
@@ -387,7 +387,7 @@ func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse
 		ignores := gitignore.NewWalkIgnore()
 		err = filepath.WalkDir(path.Absolute, func(filePath string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				return nil
+				return nil //nolint:nilerr // unreadable entries are skipped during search.
 			}
 			if err := ctx.Err(); err != nil {
 				return err
@@ -404,7 +404,7 @@ func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse
 			}
 			rel, err := filepath.Rel(path.Absolute, filePath)
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // files with invalid relative paths are skipped.
 			}
 			if ignores.Match(filePath, false) {
 				return nil
@@ -468,16 +468,16 @@ func (fs *filesystem) searchFile(ctx context.Context, path, displayPath string, 
 	if err != nil {
 		return true, nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
-	reader := searchReaderPool.Get().(*bufio.Reader)
+	reader, _ := searchReaderPool.Get().(*bufio.Reader)
 	reader.Reset(io.LimitReader(f, fs.limits.MaxFileReadBytes+1))
 	defer func() {
 		reader.Reset(nil)
 		searchReaderPool.Put(reader)
 	}()
 
-	formatBufPtr := searchFormatPool.Get().(*[]byte)
+	formatBufPtr, _ := searchFormatPool.Get().(*[]byte)
 	formatBuf := *formatBufPtr
 	defer func() {
 		// Write back any grown capacity so the pool keeps the larger backing
@@ -747,7 +747,7 @@ func readLimitedFile(ctx context.Context, path string, maxBytes int64) ([]byte, 
 	if err != nil {
 		return nil, false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, io.LimitReader(f, maxBytes+1))

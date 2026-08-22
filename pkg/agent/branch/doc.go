@@ -1,7 +1,7 @@
-package agent
+package branch
 
-// BranchManager and Branch implement light-weight transcript branching for
-// agents that need to explore alternative tool-call paths or what-if
+// Package branch implements light-weight transcript branching for agents that
+// need to explore alternative tool-call paths or what-if
 // dialogues without overwriting the main timeline.
 //
 // # When to branch
@@ -39,7 +39,7 @@ package agent
 //     [BranchManager.SetMessages]; merge to the parent with
 //     [BranchManager.Merge] when the experiment succeeds.
 //
-// Branches and [Agent.Snapshot] compose: snapshot the agent, fork the
+// Branches and agent snapshots compose: snapshot the agent, fork the
 // branch, restore the snapshot onto a second agent for the alternative
 // path. This keeps observability (event sinks, hooks) attached to each
 // agent independently.

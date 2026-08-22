@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# Run the formatting, vet, and test checks expected by CI.
+# Run the formatting, lint, vet, and test checks expected by CI.
 #
 # Usage:
-#   scripts/check.sh           # full suite (gofmt + go vet + go test + tagged tests)
+#   scripts/check.sh           # full suite (gofmt + lint + go vet + go test + tagged tests)
 #   scripts/check.sh fmt       # gofmt only (fails if any file has diffs)
+#   scripts/check.sh lint      # golangci-lint ./...
 #   scripts/check.sh vet       # go vet ./...
 #   scripts/check.sh test      # go test ./... (default tags)
 #   scripts/check.sh test-all  # go test ./... with every feature_* tag enabled
@@ -18,6 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GO="${GO:-go}"
+GOLANGCI_LINT="${GOLANGCI_LINT:-golangci-lint}"
 
 step="${1:-all}"
 
@@ -40,8 +42,15 @@ run_fmt() {
 }
 
 run_vet() {
+	echo "check.sh: architecture boundaries"
+	"${SCRIPT_DIR}/check-architecture.sh"
 	echo "check.sh: go vet ./..."
 	(cd "${REPO_ROOT}" && "${GO}" vet ./...)
+}
+
+run_lint() {
+	echo "check.sh: golangci-lint run ./..."
+	(cd "${REPO_ROOT}" && "${GOLANGCI_LINT}" run ./...)
 }
 
 run_test() {
@@ -79,6 +88,9 @@ case "${step}" in
 	vet)
 		run_vet
 		;;
+	lint)
+		run_lint
+		;;
 	test)
 		run_test
 		;;
@@ -90,13 +102,14 @@ case "${step}" in
 		;;
 	all)
 		run_fmt
+		run_lint
 		run_vet
 		run_test
 		run_test_all
 		;;
 	*)
 		echo "check.sh: unknown step: ${step}" >&2
-		echo "Run scripts/check.sh fmt|vet|test|test-all|build|all" >&2
+		echo "Run scripts/check.sh fmt|lint|vet|test|test-all|build|all" >&2
 		exit 2
 		;;
 esac

@@ -106,14 +106,14 @@ func (l *Logger) write(level Level, label, message string, fields map[string]str
 		return
 	}
 
-	fmt.Fprintf(l.w, "%s %-5s %s", entry["time"], label, entry["msg"])
+	_, _ = fmt.Fprintf(l.w, "%s %-5s %s", entry["time"], label, entry["msg"])
 	for _, key := range sortedFieldKeys(entry) {
 		if key == "time" || key == "level" || key == "msg" {
 			continue
 		}
-		fmt.Fprintf(l.w, " %s=%q", key, entry[key])
+		_, _ = fmt.Fprintf(l.w, " %s=%q", key, entry[key])
 	}
-	fmt.Fprintln(l.w)
+	_, _ = fmt.Fprintln(l.w)
 }
 
 func sortedFieldKeys(fields map[string]string) []string {

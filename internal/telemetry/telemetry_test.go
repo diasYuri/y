@@ -125,7 +125,7 @@ func TestBufferedEmitterPreservesOrder(t *testing.T) {
 
 func TestDefaultEmitter(t *testing.T) {
 	// DefaultEmitter should be safe to call without panic.
-	DefaultEmitter.Emit(NewEvent(EventAgentTurn, "sess", nil))
+	DefaultEmitter().Emit(NewEvent(EventAgentTurn, "sess", nil))
 }
 
 func TestEventTimestampIsUTC(t *testing.T) {

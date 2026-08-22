@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	policypkg "github.com/yuri/y/internal/policy"
+	policypkg "github.com/yuri/y/pkg/policy"
 )
 
 // PolicyDecision is the typed authorization result for a concrete tool operation.

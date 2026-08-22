@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	policypkg "github.com/yuri/y/internal/policy"
+	policypkg "github.com/yuri/y/pkg/policy"
 )
 
 func TestRegistryAddListAndHandle(t *testing.T) {

@@ -3,6 +3,7 @@ package sse
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -62,7 +63,7 @@ func TestReadDataEOFWithData(t *testing.T) {
 	_, err := ReadData(r, 1024)
 	// EOF without trailing newline is returned as error
 	// (data is not considered a complete event).
-	if err != io.EOF {
+	if !errors.Is(err, io.EOF) {
 		t.Fatalf("expected EOF, got %v", err)
 	}
 }
@@ -71,7 +72,7 @@ func TestReadDataEOFFWithoutData(t *testing.T) {
 	input := ""
 	r := bufio.NewReader(strings.NewReader(input))
 	_, err := ReadData(r, 1024)
-	if err != io.EOF {
+	if !errors.Is(err, io.EOF) {
 		t.Fatalf("expected EOF, got %v", err)
 	}
 }
@@ -142,7 +143,8 @@ func TestReadLineExceedsLimit(t *testing.T) {
 func TestReadLineBufferFull(t *testing.T) {
 	// Create input larger than bufio default buffer (4K)
 	large := bytes.Repeat([]byte("x"), 8192)
-	input := append(large, '\n')
+	large = append(large, '\n')
+	input := large
 	r := bufio.NewReader(bytes.NewReader(input))
 	got, err := readLine(r, 16384)
 	if err != nil {

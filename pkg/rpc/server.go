@@ -14,7 +14,6 @@ import (
 
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/tools"
 )
 
 // ServerConfig configures the JSON-RPC server.
@@ -22,7 +21,7 @@ type ServerConfig struct {
 	Addr         string
 	Log          io.Writer
 	Provider     agent.Provider
-	ToolRegistry *tools.Registry
+	ToolRegistry agent.ToolRegistry
 	Model        ai.Model
 	SystemPrompt string
 }
@@ -243,7 +242,7 @@ func logRPCError(w io.Writer, method string, err *ErrorObj) {
 	if w == nil {
 		return
 	}
-	fmt.Fprintf(w, "rpc error: method=%s code=%d message=%s\n", method, err.Code, err.Message)
+	_, _ = fmt.Fprintf(w, "rpc error: method=%s code=%d message=%s\n", method, err.Code, err.Message)
 }
 
 func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, *ErrorObj) {

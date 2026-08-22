@@ -112,7 +112,7 @@ func (c *Compactor) summarize(
 	if err != nil {
 		return "", err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	var summary string
 	for {

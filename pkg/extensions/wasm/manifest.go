@@ -65,7 +65,7 @@ func ReadManifest(path string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, &ManifestError{Path: path, Message: "cannot open manifest", Cause: err}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	m, err := parseManifest(path, f)
 	if err != nil {

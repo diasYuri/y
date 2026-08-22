@@ -3,6 +3,7 @@ package wasm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -372,5 +373,5 @@ func readEntry(dir, entry string) ([]byte, error) {
 }
 
 func isNotFound(err error) bool {
-	return os.IsNotExist(err) || err == fs.ErrNotExist
+	return os.IsNotExist(err) || errors.Is(err, fs.ErrNotExist)
 }

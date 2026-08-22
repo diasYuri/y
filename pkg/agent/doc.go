@@ -80,7 +80,7 @@
 // # Branches
 //
 // Long-running sessions may want to explore alternative tool-use paths or
-// what-if questions. [BranchManager] (see branch.go) keeps multiple
+// what-if questions. [branch.BranchManager] keeps multiple
 // transcript variants that share a prefix and lets callers fork, merge,
 // and prune them.
 //

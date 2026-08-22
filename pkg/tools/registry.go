@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	policypkg "github.com/yuri/y/internal/policy"
-	"github.com/yuri/y/internal/telemetry"
+	"github.com/yuri/y/pkg/policy"
+	"github.com/yuri/y/pkg/telemetry"
 )
 
 type registryEntry struct {
@@ -18,14 +18,14 @@ type registryEntry struct {
 
 // ApprovalHandler resolves approval requests surfaced by the registry.
 type ApprovalHandler interface {
-	RequestApproval(context.Context, policypkg.ApprovalRequest) (*policypkg.ApprovalResolution, error)
+	RequestApproval(context.Context, policy.ApprovalRequest) (*policy.ApprovalResolution, error)
 }
 
 // ApprovalHandlerFunc adapts a function to ApprovalHandler.
-type ApprovalHandlerFunc func(context.Context, policypkg.ApprovalRequest) (*policypkg.ApprovalResolution, error)
+type ApprovalHandlerFunc func(context.Context, policy.ApprovalRequest) (*policy.ApprovalResolution, error)
 
 // RequestApproval calls f.
-func (f ApprovalHandlerFunc) RequestApproval(ctx context.Context, req policypkg.ApprovalRequest) (*policypkg.ApprovalResolution, error) {
+func (f ApprovalHandlerFunc) RequestApproval(ctx context.Context, req policy.ApprovalRequest) (*policy.ApprovalResolution, error) {
 	return f(ctx, req)
 }
 

@@ -1,4 +1,4 @@
-// Package gitignore implements .gitignore pattern matching for the search tool.
+// Package gitignore implements .gitignore matching for the tools domain.
 // It supports glob patterns, negation (!), directory-only matches (/ suffix),
 // and the double-star (**) wildcard.
 package gitignore

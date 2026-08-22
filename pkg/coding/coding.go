@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
@@ -179,6 +180,6 @@ func replaceOnce(s, old, new string) string {
 var idCounter uint64
 
 func generateID() string {
-	idCounter++
-	return fmt.Sprintf("coding-%d-%d", time.Now().Unix(), idCounter)
+	id := atomic.AddUint64(&idCounter, 1)
+	return fmt.Sprintf("coding-%d-%d", time.Now().Unix(), id)
 }

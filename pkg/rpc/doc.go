@@ -1,5 +1,3 @@
-//go:build feature_rpc
-
 // Package rpc provides a JSON-RPC server for headless programmatic access to y.
 //
 // It exposes the agent loop over HTTP so editors, scripts, and other tools can
@@ -8,5 +6,6 @@
 // The server speaks JSON-RPC 2.0 over HTTP POST. Streaming responses are
 // delivered via a Server-Sent Events endpoint.
 //
-// Build with -tags feature_rpc to compile this package.
+// Builds without feature_rpc expose the same API and return ErrUnavailable
+// from server operations.
 package rpc

@@ -9,6 +9,7 @@ import (
 
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/providers/providertest"
 	"github.com/yuri/y/pkg/tools"
 )
 
@@ -16,10 +17,10 @@ import (
 // recoverable error, snapshots through JSON, restores onto a fresh agent, and
 // confirms Continue() routes through Recover() (not RunMessages directly).
 func TestSnapshotPreservesRecoverableErr(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
 		// First response fails with a transient error so the agent enters
 		// StateFailed with recoverableErr set.
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Err: &providers.RateLimitError{Provider: "fake", StatusCode: 429},
 		},
 	))
@@ -52,7 +53,7 @@ func TestSnapshotPreservesRecoverableErr(t *testing.T) {
 	// Build a fresh provider whose next response succeeds — the restored
 	// agent should call it via Recover (which Continue dispatches to).
 	var afterCount int32
-	provider2 := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider2 := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "recovered"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -92,7 +93,7 @@ func TestSnapshotPreservesRecoverableErr(t *testing.T) {
 // toolConcurrency, toolTimeout, maxRetries, maxRetryDelay, compactionEnabled,
 // and the JSON-friendly subset of streamDefaults round-trip through Snapshot.
 func TestSnapshotPreservesExecutionOptions(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "ok"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -204,7 +205,7 @@ func TestSnapshotPreservesExecutionOptions(t *testing.T) {
 // TestRestoreOverwritesUnconditionally verifies that Restore replaces fields
 // even when the snapshot has zero/empty values (P1-12: no merge-only behaviour).
 func TestRestoreOverwritesUnconditionally(t *testing.T) {
-	provider := providers.NewFakeProvider()
+	provider := providertest.NewFakeProvider()
 	a := New(provider, tools.NewRegistry(),
 		WithSystemPrompt("original"),
 		WithSessionID("session-1"),

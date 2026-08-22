@@ -9,17 +9,18 @@ import (
 
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/providers/providertest"
 	"github.com/yuri/y/pkg/tools"
 )
 
 // TestIsTransientRateLimit verifies that a *providers.RateLimitError is always
 // treated as transient and that WithMaxRetries actually retries the request.
 func TestIsTransientRateLimit(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.RateLimitError{Provider: "fake", StatusCode: 429},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "ok"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -42,11 +43,11 @@ func TestIsTransientRateLimit(t *testing.T) {
 // TestIsTransientNetworkError5xx verifies *providers.NetworkError with a 5xx
 // status code triggers a retry.
 func TestIsTransientNetworkError5xx(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.NetworkError{Provider: "fake", StatusCode: 503},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "ok"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -65,11 +66,11 @@ func TestIsTransientNetworkError5xx(t *testing.T) {
 // TestIsTransientNetworkErrorTransport confirms a NetworkError with no status
 // code (transport-level failure) is transient.
 func TestIsTransientNetworkErrorTransport(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.NetworkError{Provider: "fake", StatusCode: 0, Err: errors.New("dial tcp: connection refused")},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "ok"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -88,8 +89,8 @@ func TestIsTransientNetworkErrorTransport(t *testing.T) {
 // TestIsTransientNetworkError4xxNotRetried verifies that a NetworkError with a
 // 4xx status is not retried (even when MaxRetries > 0).
 func TestIsTransientNetworkError4xxNotRetried(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.NetworkError{Provider: "fake", StatusCode: 400},
 		},
 	))
@@ -104,8 +105,8 @@ func TestIsTransientNetworkError4xxNotRetried(t *testing.T) {
 
 // TestIsTransientAuthErrorNotRetried verifies AuthError is not retried.
 func TestIsTransientAuthErrorNotRetried(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.AuthError{Provider: "fake", StatusCode: 401},
 		},
 	))
@@ -121,8 +122,8 @@ func TestIsTransientAuthErrorNotRetried(t *testing.T) {
 // TestIsTransientContextOverflowNotRetried verifies ContextOverflowError is
 // not retried.
 func TestIsTransientContextOverflowNotRetried(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.ContextOverflowError{Provider: "fake", StatusCode: 413},
 		},
 	))
@@ -138,11 +139,11 @@ func TestIsTransientContextOverflowNotRetried(t *testing.T) {
 // TestRateLimitRetryAfterRespected verifies the configured backoff is
 // stretched up to RateLimitError.RetryAfter so we never re-issue too soon.
 func TestRateLimitRetryAfterRespected(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Err: &providers.RateLimitError{Provider: "fake", StatusCode: 429, RetryAfter: 200 * time.Millisecond},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "ok"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -171,7 +172,7 @@ func TestRateLimitRetryAfterRespected(t *testing.T) {
 // TestUsageObserverFiresOnHookedResponse confirms WithUsageObserver is invoked
 // when a BeforeRequest hook short-circuits the call.
 func TestUsageObserverFiresOnHookedResponse(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "should not be used"},
 			ai.StopEvent{Reason: ai.StopReasonStop},

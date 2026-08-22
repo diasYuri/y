@@ -12,10 +12,12 @@ import (
 	"syscall"
 
 	"github.com/yuri/y/internal/feature"
+	"github.com/yuri/y/internal/runtime"
 	"github.com/yuri/y/internal/storage"
 	"github.com/yuri/y/internal/telemetry"
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/tools"
 )
 
@@ -167,7 +169,7 @@ func runHeadlessCommand(
 
 	sessionStore := storage.NewSessionStore(opts.sessionDir)
 	streamWriter := &headlessStreamWriter{w: stdout}
-	teleEmitter := telemetry.DefaultEmitter
+	teleEmitter := telemetry.DefaultEmitter()
 	agentOpts := []agent.Option{
 		agent.WithWorkspaceRoot(cwd),
 		agent.WithEventSink(func(ev agent.Event) {
@@ -587,7 +589,7 @@ func collectChatPrompts(stdin io.Reader, prompts []string) ([]string, error) {
 }
 
 func buildHeadlessRegistry(ctx context.Context, compiled *feature.Registry, cwd string) (*tools.Registry, error) {
-	return buildRuntimeRegistry(ctx, compiled, cwd, tools.WorkspacePolicy(), nil)
+	return runtime.BuildToolRegistry(ctx, compiled, cwd, policy.NewEngine(policy.DefaultConfig()), nil, telemetry.DefaultEmitter())
 }
 
 func printHeadlessUsage(w io.Writer, mode string) {

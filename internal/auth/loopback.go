@@ -43,7 +43,7 @@ func StartLoopbackServer() (*LoopbackServer, string, error) {
 		ReadTimeout: 5 * time.Second,
 	}
 
-	go lb.server.Serve(l)
+	go func() { _ = lb.server.Serve(l) }()
 
 	addr := l.Addr().String()
 	callbackURL := fmt.Sprintf("http://%s/callback", addr)
@@ -69,7 +69,7 @@ func StartLoopbackServerOnPort(port string) (*LoopbackServer, string, error) {
 		ReadTimeout: 5 * time.Second,
 	}
 
-	go lb.server.Serve(l)
+	go func() { _ = lb.server.Serve(l) }()
 
 	addr := l.Addr().String()
 	callbackURL := fmt.Sprintf("http://%s/callback", addr)
@@ -94,7 +94,7 @@ func (lb *LoopbackServer) handleCallback(w http.ResponseWriter, r *http.Request)
 	}
 
 	lb.result <- CallbackResult{Code: code, State: state}
-	fmt.Fprintln(w, "Authorization successful. You may close this window.")
+	_, _ = fmt.Fprintln(w, "Authorization successful. You may close this window.")
 }
 
 // Wait blocks until a callback arrives or the context is canceled.

@@ -125,7 +125,7 @@ func TestEventStreamNilContext(t *testing.T) {
 	s := New(body, 1024, nil, "test", consumer)
 	defer s.Close()
 
-	event, err := s.Next(nil)
+	event, err := s.Next(context.TODO())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

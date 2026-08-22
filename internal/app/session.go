@@ -117,7 +117,7 @@ func runSessionShow(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprintf(stderr, "y session show: %v\n", err)
 		return 1
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if _, err := io.Copy(stdout, file); err != nil {
 		fmt.Fprintf(stderr, "y session show: %v\n", err)

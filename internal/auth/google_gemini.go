@@ -94,7 +94,7 @@ func exchangeGoogleToken(ctx context.Context, clientID, redirectURI, code, verif
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -150,7 +150,7 @@ func GoogleRefresh(ctx context.Context, refreshToken string) (*Credentials, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

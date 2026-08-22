@@ -14,7 +14,7 @@ import (
 	"github.com/yuri/y/internal/storage"
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/providers/providertest"
 )
 
 func TestRunHelp(t *testing.T) {
@@ -313,7 +313,7 @@ func TestRunCommandStreamsTextAndSavesSession(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("Y_CODING_AGENT_DIR", filepath.Join(root, "agent"))
 
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "hel"},
 			ai.TextDelta{Text: "lo"},
@@ -353,11 +353,11 @@ func TestChatCommandStreamsMultipleTurnsWithoutTUI(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("Y_CODING_AGENT_DIR", filepath.Join(root, "agent"))
 
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{ai.TextDelta{Text: "first"}, ai.StopEvent{Reason: ai.StopReasonStop}},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{ai.TextDelta{Text: "second"}, ai.StopEvent{Reason: ai.StopReasonStop}},
 		},
 	))

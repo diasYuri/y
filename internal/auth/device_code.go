@@ -55,7 +55,7 @@ func PollDeviceToken(ctx context.Context, tokenURL, clientID string, deviceCode 
 			return nil, err
 		}
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +64,7 @@ func PollDeviceToken(ctx context.Context, tokenURL, clientID string, deviceCode 
 			retryAfter := resp.Header.Get("Retry-After")
 			if retryAfter != "" {
 				var secs int
-				fmt.Sscanf(retryAfter, "%d", &secs)
+				_, _ = fmt.Sscanf(retryAfter, "%d", &secs)
 				if secs > 0 {
 					time.Sleep(time.Duration(secs) * time.Second)
 				}

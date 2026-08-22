@@ -1,0 +1,78 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - feature_fs
+    - feature_git
+    - feature_shell
+    - feature_lsp
+    - feature_rpc
+    - feature_telemetry
+    - feature_wasm_ext
+    - feature_openai
+    - feature_anthropic
+    - feature_google
+    - feature_local
+    - feature_storage_sqlite
+
+linters:
+  default: standard
+  enable:
+    - asciicheck
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errorlint
+    - gocritic
+    - nilerr
+    - whitespace
+    - nolintlint
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+    paths:
+      - ".git"
+      - ".gomodcache"
+      - ".extract"
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - bodyclose
+          - errcheck
+      - path: "internal/app/provider_local\\.go"
+        linters:
+          - staticcheck
+      - path: "pkg/providers/openai/compatible\\.go"
+        linters:
+          - staticcheck
+      - path: "pkg/agent/run_options\\.go"
+        linters:
+          - staticcheck
+      - path: "internal/app/lsp\\.go"
+        linters:
+          - unused
+      - path: "internal/app/provider_factory\\.go"
+        linters:
+          - unused
+      - path: "internal/app/.*\\.go"
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - ".git"
+      - ".gomodcache"
+      - ".extract"

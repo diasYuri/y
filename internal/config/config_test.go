@@ -126,3 +126,25 @@ func TestGenerateDefault(t *testing.T) {
 		t.Fatal("missing [limits] section")
 	}
 }
+
+func TestParseDoesNotReadEnvironment(t *testing.T) {
+	cfg, err := Parse(strings.NewReader("[features]\ngit = true\n"))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	if cfg.OfflineMode || cfg.Telemetry {
+		t.Fatalf("Parse unexpectedly applied environment flags: %+v", cfg)
+	}
+}
+
+func TestApplyEnvironmentUsesInjectedLookup(t *testing.T) {
+	cfg := ApplyEnvironment(Config{}, func(key string) string {
+		if key == "Y_OFFLINE" {
+			return "true"
+		}
+		return ""
+	})
+	if !cfg.OfflineMode {
+		t.Fatal("ApplyEnvironment did not apply injected Y_OFFLINE")
+	}
+}

@@ -1,6 +1,6 @@
-// Package providers defines provider-agnostic LLM streaming primitives,
-// concrete provider implementations (Anthropic, OpenAI, Google, OpenAI-
-// compatible), and reusable test helpers.
+// Package providers defines provider-agnostic LLM streaming primitives and
+// concrete provider implementations (Anthropic, OpenAI, Google, and
+// OpenAI-compatible).
 //
 // # Concept
 //
@@ -74,10 +74,9 @@
 //
 // # Test helpers
 //
-// [FakeProvider] is an in-memory provider that returns queued
-// [FakeResponse]s in FIFO order. Use it to drive agent-loop tests without
-// touching the network. The canonical import path is
-// [pkg/providers/providertest], which re-exports the same type.
+// The deterministic in-memory provider lives in the separate
+// [pkg/providers/providertest] package so production provider APIs remain
+// focused on network-backed implementations.
 //
 // # Model lists
 //

@@ -216,7 +216,7 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		return nil, &providers.NetworkError{Provider: providerID, Err: err}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		limited, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		body := strings.TrimSpace(string(limited))
 		return nil, providers.ClassifyHTTPError(providerID, resp.StatusCode, retryafter.Parse(resp.Header.Get("Retry-After")), body, nil)

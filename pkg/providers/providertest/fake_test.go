@@ -1,4 +1,4 @@
-package providers
+package providertest
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/providers"
 )
 
 func TestFakeProviderStreamsQueuedEvents(t *testing.T) {
@@ -31,11 +32,11 @@ func TestFakeProviderStreamsQueuedEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Models returned error: %v", err)
 	}
-	if len(models) != 1 || models[0].ID != defaultFakeModelID {
+	if len(models) != 1 || models[0].ID != "fake-1" {
 		t.Fatalf("Models returned %#v, want default fake model", models)
 	}
 
-	stream, err := provider.Stream(context.Background(), StreamRequest{Model: models[0]})
+	stream, err := provider.Stream(context.Background(), providers.StreamRequest{Model: models[0]})
 	if err != nil {
 		t.Fatalf("Stream returned error: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestFakeStreamHonorsCancellation(t *testing.T) {
 		Events: []ai.Event{ai.TextDelta{Text: "late"}},
 		Delay:  time.Hour,
 	}))
-	stream, err := provider.Stream(context.Background(), StreamRequest{})
+	stream, err := provider.Stream(context.Background(), providers.StreamRequest{})
 	if err != nil {
 		t.Fatalf("Stream returned error: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestFakeStreamCloseUnblocksNext(t *testing.T) {
 		Events: []ai.Event{ai.TextDelta{Text: "late"}},
 		Delay:  time.Hour,
 	}))
-	stream, err := provider.Stream(context.Background(), StreamRequest{})
+	stream, err := provider.Stream(context.Background(), providers.StreamRequest{})
 	if err != nil {
 		t.Fatalf("Stream returned error: %v", err)
 	}
@@ -107,14 +108,44 @@ func TestFakeStreamCloseUnblocksNext(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		if !errors.Is(err, ErrStreamClosed) {
-			t.Fatalf("blocked Next returned %v, want ErrStreamClosed", err)
+		if !errors.Is(err, providers.ErrStreamClosed) {
+			t.Fatalf("blocked Next returned %v, want providers.ErrStreamClosed", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Close did not unblock Next")
 	}
 
-	if _, err := stream.Next(context.Background()); !errors.Is(err, ErrStreamClosed) {
-		t.Fatalf("Next after Close returned %v, want ErrStreamClosed", err)
+	if _, err := stream.Next(context.Background()); !errors.Is(err, providers.ErrStreamClosed) {
+		t.Fatalf("Next after Close returned %v, want providers.ErrStreamClosed", err)
+	}
+}
+
+func TestFakeProviderCapabilitiesAndClose(t *testing.T) {
+	p := NewFakeProvider()
+	caps := p.Capabilities("fake-1")
+	if !caps.Vision || !caps.Tools || !caps.Streaming {
+		t.Fatalf("FakeProvider default caps = %+v, want Vision+Tools+Streaming", caps)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !p.IsClosed() {
+		t.Fatal("FakeProvider IsClosed = false after Close")
+	}
+	if err := p.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestFakeProviderCountTokensOverride(t *testing.T) {
+	p := NewFakeProvider(WithFakeCountTokens(func(string, ai.Context) (int64, error) {
+		return 999, nil
+	}))
+	got, err := p.CountTokens(context.Background(), "x", ai.Context{})
+	if err != nil {
+		t.Fatalf("CountTokens: %v", err)
+	}
+	if got != 999 {
+		t.Fatalf("CountTokens = %d, want 999", got)
 	}
 }

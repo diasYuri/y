@@ -53,7 +53,7 @@ type loadedModule struct {
 // NewManager constructs the wazero-backed Manager. Module instantiation is
 // deferred until Load or CallTool is invoked.
 func NewManager(cfg Config) Manager {
-	if cfg.LazyLoad == false && cfg.MaxLoadedModules == 0 {
+	if !cfg.LazyLoad && cfg.MaxLoadedModules == 0 {
 		cfg.LazyLoad = true
 	}
 	if cfg.DefaultLimits == (Limits{}) {
@@ -248,7 +248,7 @@ func (m *activeManager) CallTool(ctx context.Context, id string, req ToolRequest
 		return ToolResponse{}, newExtensionError(id, CodeInternal,
 			"decode guest tool payload", err)
 	}
-	return ToolResponse{Content: tr.Content}, nil
+	return ToolResponse(tr), nil
 }
 
 // invokeInit calls the guest's pi_extension_init export. Failures fall back

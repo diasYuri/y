@@ -1,9 +1,27 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
 )
+
+type runOptionsContextKey struct{}
+
+func withRunOptions(ctx context.Context, opts RunOptions) context.Context {
+	return context.WithValue(ctx, runOptionsContextKey{}, opts)
+}
+
+func runOptionsFromContext(ctx context.Context) RunOptions {
+	if ctx == nil {
+		return RunOptions{}
+	}
+	if opts, ok := ctx.Value(runOptionsContextKey{}).(RunOptions); ok {
+		return opts
+	}
+	return RunOptions{}
+}
 
 // RunOptions are per-call overrides applied on top of the defaults
 // configured at agent construction time. Zero-valued fields are ignored

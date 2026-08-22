@@ -123,7 +123,7 @@ func TestDoExhaustsRetries(t *testing.T) {
 	}
 	cfg := Config{MaxRetries: 2, InitialDelay: time.Millisecond}
 	err := Do(context.Background(), cfg, fn)
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
 	}
 	if called != 3 { // initial + 2 retries

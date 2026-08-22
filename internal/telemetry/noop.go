@@ -2,5 +2,6 @@
 
 package telemetry
 
-// DefaultEmitter is the no-op emitter used when telemetry is not compiled in.
-var DefaultEmitter Emitter = NoopEmitter{}
+// DefaultEmitter returns the no-op emitter used when telemetry is not
+// compiled in.
+func DefaultEmitter() Emitter { return NoopEmitter{} }

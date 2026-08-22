@@ -91,7 +91,7 @@ func (s *EventStream) Close() error {
 
 func (s *EventStream) readLoop() {
 	defer close(s.results)
-	defer s.body.Close()
+	defer func() { _ = s.body.Close() }()
 	defer func() {
 		if s.cancel != nil {
 			s.cancel()

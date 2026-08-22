@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// DefaultEmitter is the active OTLP emitter when telemetry is compiled in.
-var DefaultEmitter Emitter = NewOTLPEmitter("")
+// DefaultEmitter creates the active emitter when telemetry is compiled in.
+func DefaultEmitter() Emitter { return NewOTLPEmitter("") }
 
 // OTLPEmitter sends telemetry events as JSON POST requests to a configured
 // OTLP/HTTP endpoint.
@@ -47,7 +47,7 @@ func (e *OTLPEmitter) Emit(event Event) {
 	shouldFlush := len(e.buffer) >= 64
 	e.mu.Unlock()
 	if shouldFlush {
-		go e.Flush()
+		go func() { _ = e.Flush() }()
 	}
 }
 
@@ -84,7 +84,7 @@ func (e *OTLPEmitter) Flush() error {
 	if err != nil {
 		return fmt.Errorf("send telemetry batch: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("telemetry endpoint returned %d", resp.StatusCode)

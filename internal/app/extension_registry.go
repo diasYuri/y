@@ -48,7 +48,7 @@ func readExtensionRegistry(path string) (map[string]bool, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var inSection bool
 	scanner := bufio.NewScanner(f)

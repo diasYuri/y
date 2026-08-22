@@ -85,7 +85,7 @@ func (s *stream) Close() error {
 
 func (s *stream) readLoop() {
 	defer close(s.results)
-	defer s.body.Close()
+	defer func() { _ = s.body.Close() }()
 	defer func() {
 		if s.cancel != nil {
 			s.cancel()

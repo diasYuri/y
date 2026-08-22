@@ -1,18 +1,25 @@
-package app
+package runtime
 
 import (
 	"context"
 
 	"github.com/yuri/y/internal/feature"
+	"github.com/yuri/y/pkg/policy"
+	"github.com/yuri/y/pkg/telemetry"
 	"github.com/yuri/y/pkg/tools"
+	"github.com/yuri/y/pkg/tools/filesystem"
+	"github.com/yuri/y/pkg/tools/git"
+	"github.com/yuri/y/pkg/tools/shell"
 )
 
-func buildRuntimeRegistry(
+// BuildToolRegistry creates the binary's tool registry from compiled features.
+func BuildToolRegistry(
 	ctx context.Context,
 	compiled *feature.Registry,
 	cwd string,
-	policyEngine tools.Policy,
+	policyEngine policy.Engine,
 	approvalHandler tools.ApprovalHandler,
+	emitter telemetry.Emitter,
 ) (*tools.Registry, error) {
 	if ctx != nil {
 		if err := ctx.Err(); err != nil {
@@ -20,12 +27,15 @@ func buildRuntimeRegistry(
 		}
 	}
 	if policyEngine == nil {
-		policyEngine = tools.WorkspacePolicy()
+		policyEngine = policy.NewEngine(policy.DefaultConfig())
 	}
 
 	options := []tools.RegistryOption{tools.WithPolicy(policyEngine)}
 	if approvalHandler != nil {
 		options = append(options, tools.WithApprovalHandler(approvalHandler))
+	}
+	if emitter != nil {
+		options = append(options, tools.WithTelemetryEmitter(emitter))
 	}
 	registry := tools.NewRegistry(options...)
 	if compiled == nil {
@@ -33,15 +43,16 @@ func buildRuntimeRegistry(
 	}
 
 	if compiled.Has(feature.KindFeature, "filesystem") {
-		if err := tools.RegisterFilesystem(registry, tools.FilesystemOptions{
+		if err := filesystem.Register(registry, filesystem.Options{
 			WorkspaceRoot: cwd,
 			Policy:        policyEngine,
+			Limits:        tools.ToolLimits{},
 		}); err != nil {
 			return nil, err
 		}
 	}
 	if compiled.Has(feature.KindFeature, "git") {
-		if err := tools.RegisterGit(registry, tools.GitOptions{
+		if err := git.Register(registry, git.Options{
 			WorkspaceRoot: cwd,
 			Policy:        policyEngine,
 		}); err != nil {
@@ -49,7 +60,7 @@ func buildRuntimeRegistry(
 		}
 	}
 	if compiled.Has(feature.KindFeature, "shell") {
-		if err := tools.RegisterShell(registry, tools.ShellOptions{
+		if err := shell.Register(registry, shell.Options{
 			WorkspaceRoot: cwd,
 			Policy:        policyEngine,
 		}); err != nil {

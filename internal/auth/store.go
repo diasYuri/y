@@ -78,7 +78,7 @@ func (s *Store) Write(c *Credentials) error {
 
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0600); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, s.path)
@@ -110,7 +110,7 @@ func (s *Store) Delete(providerID string) error {
 
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0600); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return os.Rename(tmp, s.path)

@@ -55,7 +55,7 @@ func runExtensionList(stdout, stderr io.Writer, args []string, info BuildInfo, c
 		fmt.Fprintf(stderr, "y extension list: %v\n", err)
 		return exitCodeExecution
 	}
-	defer manager.Close(context.Background())
+	defer func() { _ = manager.Close(context.Background()) }()
 
 	if len(infos) == 0 {
 		fmt.Fprintln(stdout, "no extensions discovered")
@@ -86,7 +86,7 @@ func runExtensionInfo(stdout, stderr io.Writer, args []string, info BuildInfo, c
 		fmt.Fprintf(stderr, "y extension info: %v\n", err)
 		return exitCodeExecution
 	}
-	defer manager.Close(context.Background())
+	defer func() { _ = manager.Close(context.Background()) }()
 
 	ext, err := manager.Get(positional[0])
 	if err != nil {
@@ -183,7 +183,7 @@ func discoverExtensions(dirs []string, info BuildInfo, compiled *feature.Registr
 	cfg := wasm.Config{ExtensionDirs: dirs, HostVersion: info.Version}
 	manager := wasm.NewManager(cfg)
 	if err := manager.Discover(context.Background()); err != nil {
-		manager.Close(context.Background())
+		_ = manager.Close(context.Background())
 		return nil, nil, err
 	}
 	infos := manager.List()

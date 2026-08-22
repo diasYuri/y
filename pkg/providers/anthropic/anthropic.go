@@ -202,16 +202,16 @@ func (p *Provider) fetchModels(ctx context.Context) ([]ai.Model, error) {
 			return err
 		}
 		if retry.IsRetryableHTTPStatus(resp.StatusCode) {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return fmt.Errorf("models API returned %d", resp.StatusCode)
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return retry.Do(ctx, retry.Config{}, func() error {
 				return fmt.Errorf("models API returned %d", resp.StatusCode)
 			})
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		return json.NewDecoder(resp.Body).Decode(&result)
 	})
 	if err != nil {
@@ -302,7 +302,7 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		return nil, &providers.NetworkError{Provider: providerID, Err: err}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		limited, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		body := strings.TrimSpace(string(limited))
 		retryAfter := retryafter.Parse(resp.Header.Get("Retry-After"))
@@ -393,7 +393,7 @@ func (p *Provider) CountTokens(ctx context.Context, modelID string, c ai.Context
 	if err != nil {
 		return providers.EstimateTokens(c), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return providers.EstimateTokens(c), nil
 	}

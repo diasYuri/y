@@ -11,11 +11,12 @@ import (
 
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/providers/providertest"
 	"github.com/yuri/y/pkg/tools"
 )
 
 func TestAgentRunSimpleResponse(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "hello world"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -60,8 +61,8 @@ func TestAgentRunSimpleResponse(t *testing.T) {
 
 func TestAgentRunExecutesToolCallsIteratively(t *testing.T) {
 	provider := &capturingProvider{
-		FakeProvider: providers.NewFakeProvider(providers.WithFakeResponses(
-			providers.FakeResponse{
+		FakeProvider: providertest.NewFakeProvider(providertest.WithFakeResponses(
+			providertest.FakeResponse{
 				Events: []ai.Event{
 					ai.ToolCallEvent{
 						ContentIndex: 0,
@@ -75,7 +76,7 @@ func TestAgentRunExecutesToolCallsIteratively(t *testing.T) {
 					ai.StopEvent{Reason: ai.StopReasonToolUse},
 				},
 			},
-			providers.FakeResponse{
+			providertest.FakeResponse{
 				Events: []ai.Event{
 					ai.TextDelta{Text: "done"},
 					ai.StopEvent{Reason: ai.StopReasonStop},
@@ -171,7 +172,7 @@ func TestAgentRunExecutesToolCallsIteratively(t *testing.T) {
 }
 
 func TestAgentCancellationInterruptsProvider(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{ai.TextDelta{Text: "late"}},
 		Delay:  time.Hour,
 	}))
@@ -194,7 +195,7 @@ func TestAgentCancellationInterruptsProvider(t *testing.T) {
 }
 
 func TestAgentCancellationInterruptsTool(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.ToolCallEvent{
 				ContentIndex: 0,
@@ -255,8 +256,8 @@ func TestAgentCancellationInterruptsTool(t *testing.T) {
 func TestAgentCompactionTriggeredWhenEnabled(t *testing.T) {
 	// First response triggers compaction (tool call to consume a turn),
 	// second response is the summary, third is the final text.
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.ToolCallEvent{
 					ContentIndex: 0,
@@ -270,13 +271,13 @@ func TestAgentCompactionTriggeredWhenEnabled(t *testing.T) {
 				ai.StopEvent{Reason: ai.StopReasonToolUse},
 			},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "summary of session"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
 			},
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "done"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -331,7 +332,7 @@ func TestAgentCompactionTriggeredWhenEnabled(t *testing.T) {
 }
 
 func TestAgentCompactionNotTriggeredWhenDisabled(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "hello"},
 			ai.StopEvent{Reason: ai.StopReasonStop},
@@ -363,7 +364,7 @@ func TestAgentCompactionNotTriggeredWhenDisabled(t *testing.T) {
 }
 
 type capturingProvider struct {
-	*providers.FakeProvider
+	*providertest.FakeProvider
 	mu       sync.Mutex
 	requests []providers.StreamRequest
 }
@@ -384,15 +385,15 @@ func (p *capturingProvider) Requests() []providers.StreamRequest {
 }
 
 func TestAgentSteer(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "first"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
 			},
 			Delay: 50 * time.Millisecond,
 		},
-		providers.FakeResponse{
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "second"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -424,8 +425,8 @@ func TestAgentSteer(t *testing.T) {
 }
 
 func TestAgentFollowUp(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "first"},
 				ai.StopEvent{Reason: ai.StopReasonStop},
@@ -465,8 +466,8 @@ func TestAgentFollowUp(t *testing.T) {
 }
 
 func TestAgentAbort(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(
-		providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(
+		providertest.FakeResponse{
 			Events: []ai.Event{
 				ai.TextDelta{Text: "hello"},
 			},
@@ -494,7 +495,7 @@ func TestAgentAbort(t *testing.T) {
 }
 
 func TestAgentSubscribe(t *testing.T) {
-	provider := providers.NewFakeProvider(providers.WithFakeResponses(providers.FakeResponse{
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{
 		Events: []ai.Event{
 			ai.TextDelta{Text: "hello"},
 			ai.StopEvent{Reason: ai.StopReasonStop},

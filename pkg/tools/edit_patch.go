@@ -466,15 +466,7 @@ func splitLinesKeepNewline(s string) []string {
 		return []string{""}
 	}
 	count := strings.Count(s, "\n")
-	cap := count
-	if !strings.HasSuffix(s, "\n") {
-		cap++
-	} else {
-		cap++ // trailing newline produces an extra empty last element
-	}
-	if cap == 0 {
-		cap = 1
-	}
+	cap := count + 1
 	out := make([]string, 0, cap)
 	start := 0
 	for i := 0; i < len(s); i++ {

@@ -1,4 +1,4 @@
-package providers
+package providertest
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/providers"
 )
 
 const (
@@ -18,10 +19,7 @@ const (
 // FakeProvider is an in-memory provider for unit tests. It returns queued
 // responses in FIFO order and never performs network or subprocess work.
 //
-// Deprecated: prefer pkg/providers/providertest.FakeProvider, which is a
-// re-export of this type. The canonical location is providertest; the type
-// remains in pkg/providers to avoid an import cycle (providertest depends on
-// providers via the Provider interface).
+// It implements providers.Provider without network or subprocess work.
 type FakeProvider struct {
 	mu           sync.Mutex
 	id           string
@@ -29,7 +27,7 @@ type FakeProvider struct {
 	responses    []FakeResponse
 	callCount    int
 	closed       bool
-	capabilities Capabilities
+	capabilities providers.Capabilities
 	tokensFn     func(modelID string, c ai.Context) (int64, error)
 }
 
@@ -57,7 +55,7 @@ func NewFakeProvider(opts ...FakeOption) *FakeProvider {
 			ContextWindow: 128000,
 			MaxTokens:     16384,
 		}},
-		capabilities: Capabilities{Vision: true, Tools: true, Streaming: true},
+		capabilities: providers.Capabilities{Vision: true, Tools: true, Streaming: true},
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -91,13 +89,13 @@ func WithFakeResponses(responses ...FakeResponse) FakeOption {
 	}
 }
 
-// WithFakeCapabilities overrides the capabilities returned by Capabilities.
-func WithFakeCapabilities(c Capabilities) FakeOption {
+// WithFakeCapabilities overrides the capabilities returned by providers.Capabilities.
+func WithFakeCapabilities(c providers.Capabilities) FakeOption {
 	return func(p *FakeProvider) { p.capabilities = c }
 }
 
 // WithFakeCountTokens overrides the CountTokens implementation. The default
-// returns EstimateTokens(c).
+// returns providers.EstimateTokens(c).
 func WithFakeCountTokens(fn func(modelID string, c ai.Context) (int64, error)) FakeOption {
 	return func(p *FakeProvider) { p.tokensFn = fn }
 }
@@ -120,7 +118,7 @@ func (p *FakeProvider) Models(ctx context.Context) ([]ai.Model, error) {
 	return append([]ai.Model(nil), p.models...), nil
 }
 
-// CountTokens returns a token estimate via EstimateTokens by default. Override
+// CountTokens returns a token estimate via providers.EstimateTokens by default. Override
 // with WithFakeCountTokens.
 func (p *FakeProvider) CountTokens(ctx context.Context, modelID string, c ai.Context) (int64, error) {
 	if err := ctx.Err(); err != nil {
@@ -129,13 +127,13 @@ func (p *FakeProvider) CountTokens(ctx context.Context, modelID string, c ai.Con
 	if p != nil && p.tokensFn != nil {
 		return p.tokensFn(modelID, c)
 	}
-	return EstimateTokens(c), nil
+	return providers.EstimateTokens(c), nil
 }
 
-// Capabilities returns the configured capabilities.
-func (p *FakeProvider) Capabilities(modelID string) Capabilities {
+// providers.Capabilities returns the configured capabilities.
+func (p *FakeProvider) Capabilities(modelID string) providers.Capabilities {
 	if p == nil {
-		return Capabilities{}
+		return providers.Capabilities{}
 	}
 	return p.capabilities
 }
@@ -162,7 +160,7 @@ func (p *FakeProvider) IsClosed() bool {
 }
 
 // Stream returns the next queued fake response.
-func (p *FakeProvider) Stream(ctx context.Context, _ StreamRequest) (EventStream, error) {
+func (p *FakeProvider) Stream(ctx context.Context, _ providers.StreamRequest) (providers.EventStream, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -238,7 +236,7 @@ func (s *fakeEventStream) Next(ctx context.Context) (ai.Event, error) {
 	}
 	select {
 	case <-s.done:
-		return nil, ErrStreamClosed
+		return nil, providers.ErrStreamClosed
 	default:
 	}
 
@@ -249,7 +247,7 @@ func (s *fakeEventStream) Next(ctx context.Context) (ai.Event, error) {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-s.done:
-			return nil, ErrStreamClosed
+			return nil, providers.ErrStreamClosed
 		case <-timer.C:
 		}
 	}
@@ -259,7 +257,7 @@ func (s *fakeEventStream) Next(ctx context.Context) (ai.Event, error) {
 
 	select {
 	case <-s.done:
-		return nil, ErrStreamClosed
+		return nil, providers.ErrStreamClosed
 	default:
 	}
 	if s.index < len(s.events) {
@@ -281,4 +279,4 @@ func (s *fakeEventStream) Close() error {
 	return nil
 }
 
-var _ Provider = (*FakeProvider)(nil)
+var _ providers.Provider = (*FakeProvider)(nil)
