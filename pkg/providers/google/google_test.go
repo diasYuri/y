@@ -14,7 +14,21 @@ import (
 )
 
 func TestProviderStreamsTextUsageToolAndStop(t *testing.T) {
-	var gotRequest generateRequest
+	var gotRequest struct {
+		SystemInstruction *struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"systemInstruction"`
+		Contents []struct {
+			Role string `json:"role"`
+		} `json:"contents"`
+		Tools []struct {
+			FunctionDeclarations []struct {
+				Name string `json:"name"`
+			} `json:"functionDeclarations"`
+		} `json:"tools"`
+	}
 	client := newMockClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/models/gemini-test:streamGenerateContent" {
 			t.Fatalf("path = %q, want Gemini stream path", r.URL.Path)
@@ -118,6 +132,56 @@ func TestProviderStreamsTextUsageToolAndStop(t *testing.T) {
 	}
 }
 
+func TestProviderModelsUsesOfficialSDK(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1beta/models" {
+			t.Fatalf("request = %s %s, want GET /v1beta/models", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("key"); got != "test-key" {
+			t.Fatalf("key query = %q, want test-key", got)
+		}
+		if got := r.Header.Get("X-Goog-Api-Key"); got != "test-key" {
+			t.Fatalf("X-Goog-Api-Key = %q, want test-key", got)
+		}
+		return jsonResponse(`{"models":[{"name":"models/gemini-2.5-flash","displayName":"Gemini 2.5 Flash","inputTokenLimit":1000000,"outputTokenLimit":8192}]}`), nil
+	})
+
+	p := New(WithBaseURL("http://example.invalid/v1beta"), WithAPIKey("test-key"), WithHTTPClient(client))
+	models, err := p.Models(context.Background())
+	if err != nil {
+		t.Fatalf("Models: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "gemini-2.5-flash" {
+		t.Fatalf("models = %#v, want official Gemini response", models)
+	}
+}
+
+func TestCountTokensUsesOfficialSDK(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1beta/models/gemini-test:countTokens" {
+			t.Fatalf("request = %s %s, want POST /v1beta/models/gemini-test:countTokens", r.Method, r.URL.Path)
+		}
+		if got := r.URL.Query().Get("key"); got != "test-key" {
+			t.Fatalf("query key = %q, want test-key", got)
+		}
+		if got := r.Header.Get("x-goog-api-key"); got != "test-key" {
+			t.Fatalf("x-goog-api-key = %q, want test-key", got)
+		}
+		return jsonResponse(`{"totalTokens":42}`), nil
+	})
+
+	p := New(WithBaseURL("http://example.invalid/v1beta"), WithAPIKey("test-key"), WithHTTPClient(client))
+	got, err := p.CountTokens(context.Background(), "gemini-test", ai.Context{
+		Messages: []ai.Message{{Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "hello"}}}},
+	})
+	if err != nil {
+		t.Fatalf("CountTokens: %v", err)
+	}
+	if got != 42 {
+		t.Fatalf("CountTokens = %d, want 42", got)
+	}
+}
+
 func TestProviderRequiresAPIKey(t *testing.T) {
 	provider := New(WithEnvLookup(func(string) string { return "" }))
 	_, err := provider.Stream(context.Background(), providers.StreamRequest{
@@ -153,5 +217,13 @@ func sseResponse(events ...string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(body.String())),
+	}
+}
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }

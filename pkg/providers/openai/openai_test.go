@@ -16,7 +16,14 @@ import (
 )
 
 func TestProviderStreamsTextUsageAndStop(t *testing.T) {
-	var gotRequest responseRequest
+	var gotRequest struct {
+		Model string `json:"model"`
+		Input []struct {
+			Role string `json:"role"`
+		} `json:"input"`
+		Stream bool `json:"stream"`
+		Store  bool `json:"store"`
+	}
 	client := newMockClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("path = %q, want /responses", r.URL.Path)
@@ -105,6 +112,92 @@ func TestProviderStreamsTextUsageAndStop(t *testing.T) {
 	}
 	if len(gotRequest.Input) != 2 || gotRequest.Input[0].Role != "system" || gotRequest.Input[1].Role != "user" {
 		t.Fatalf("request input = %#v, want system and user messages", gotRequest.Input)
+	}
+}
+
+func TestProviderModelsUsesOfficialSDK(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			t.Fatalf("request = %s %s, want GET /models", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("Authorization = %q, want bearer test key", got)
+		}
+		return jsonResponse(`{"object":"list","data":[{"id":"gpt-5","object":"model","created":1,"owned_by":"openai"}]}`), nil
+	})
+
+	p := New(WithBaseURL("http://example.invalid"), WithAPIKey("test-key"), WithHTTPClient(client))
+	models, err := p.Models(context.Background())
+	if err != nil {
+		t.Fatalf("Models: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "gpt-5" {
+		t.Fatalf("models = %#v, want official gpt-5 response", models)
+	}
+}
+
+func TestCountTokensUsesOfficialSDK(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/responses/input_tokens" {
+			t.Fatalf("request = %s %s, want POST /responses/input_tokens", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("Authorization = %q, want bearer test key", got)
+		}
+		return jsonResponse(`{"object":"response.input_tokens","input_tokens":42}`), nil
+	})
+
+	p := New(WithBaseURL("http://example.invalid"), WithAPIKey("test-key"), WithHTTPClient(client))
+	got, err := p.CountTokens(context.Background(), "gpt-5", ai.Context{
+		SystemPrompt: "Be concise.",
+		Messages:     []ai.Message{{Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "hello"}}}},
+	})
+	if err != nil {
+		t.Fatalf("CountTokens: %v", err)
+	}
+	if got != 42 {
+		t.Fatalf("CountTokens = %d, want 42", got)
+	}
+}
+
+func TestBuildSDKMessagePreservesResponseToolIDs(t *testing.T) {
+	items, err := buildSDKMessage(ai.Message{
+		Role:    ai.RoleAssistant,
+		Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "I will check that."}},
+		ToolCalls: []ai.ToolCall{{
+			ID:        "call_1|fc_1",
+			Name:      "read_file",
+			Arguments: json.RawMessage(`{"path":"README.md"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("buildSDKMessage: %v", err)
+	}
+	body, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("marshal SDK input: %v", err)
+	}
+	encoded := string(body)
+	if !strings.Contains(encoded, `"id":"fc_1"`) || !strings.Contains(encoded, `"call_id":"call_1"`) {
+		t.Fatalf("SDK input = %s, want both response item and call IDs", encoded)
+	}
+
+	resultItems, err := buildSDKMessage(ai.Message{
+		Role: ai.RoleToolResult,
+		ToolResult: &ai.ToolResult{
+			ToolCallID: "call_1|fc_1",
+			Content:    []ai.ContentBlock{{Type: ai.ContentText, Text: "contents"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildSDKMessage tool result: %v", err)
+	}
+	body, err = json.Marshal(resultItems)
+	if err != nil {
+		t.Fatalf("marshal SDK tool result: %v", err)
+	}
+	if encoded = string(body); !strings.Contains(encoded, `"call_id":"call_1"`) || strings.Contains(encoded, `"call_id":"call_1|fc_1"`) {
+		t.Fatalf("SDK tool result = %s, want normalized call ID", encoded)
 	}
 }
 
@@ -264,6 +357,14 @@ func sseResponse(events ...string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(body.String())),
+	}
+}
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
 

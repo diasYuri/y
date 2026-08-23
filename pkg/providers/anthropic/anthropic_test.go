@@ -14,7 +14,18 @@ import (
 )
 
 func TestProviderStreamsTextUsageToolAndStop(t *testing.T) {
-	var gotRequest messageRequest
+	var gotRequest struct {
+		Model     string          `json:"model"`
+		MaxTokens int64           `json:"max_tokens"`
+		Stream    bool            `json:"stream"`
+		System    json.RawMessage `json:"system"`
+		Messages  []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
 	client := newMockClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/v1/messages" {
 			t.Fatalf("path = %q, want /v1/messages", r.URL.Path)
@@ -134,11 +145,65 @@ func TestProviderStreamsTextUsageToolAndStop(t *testing.T) {
 	if gotRequest.Model != "claude-test" || !gotRequest.Stream || gotRequest.MaxTokens != defaultMaxTokens {
 		t.Fatalf("request basics = %#v, want model, streaming and default max tokens", gotRequest)
 	}
-	if gotRequest.System != "You are terse." || len(gotRequest.Messages) != 1 || gotRequest.Messages[0].Role != "user" {
+	var systemBlocks []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(gotRequest.System, &systemBlocks); err != nil || len(systemBlocks) != 1 || systemBlocks[0].Text != "You are terse." || len(gotRequest.Messages) != 1 || gotRequest.Messages[0].Role != "user" {
 		t.Fatalf("request messages = %#v, want system and user message", gotRequest)
 	}
 	if len(gotRequest.Tools) != 1 || gotRequest.Tools[0].Name != "read_file" {
 		t.Fatalf("request tools = %#v, want read_file", gotRequest.Tools)
+	}
+}
+
+func TestProviderModelsUsesOfficialSDK(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" {
+			t.Fatalf("request = %s %s, want GET /v1/models", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "test-key" {
+			t.Fatalf("X-API-Key = %q, want test-key", got)
+		}
+		if got := r.Header.Get("Anthropic-Version"); got != anthropicVersion {
+			t.Fatalf("Anthropic-Version = %q, want %q", got, anthropicVersion)
+		}
+		return jsonResponse(`{"data":[{"id":"claude-test","display_name":"Claude Test","created_at":"2025-01-01T00:00:00Z","type":"model","max_input_tokens":100000,"max_tokens":4096,"capabilities":{"image_input":{"supported":true},"thinking":{"supported":true},"effort":{"supported":false}}}],"has_more":false,"first_id":"claude-test","last_id":"claude-test"}`), nil
+	})
+
+	p := New(WithBaseURL("http://example.invalid"), WithAPIKey("test-key"), WithHTTPClient(client))
+	models, err := p.Models(context.Background())
+	if err != nil {
+		t.Fatalf("Models: %v", err)
+	}
+	if len(models) != 1 || models[0].ID != "claude-test" || !models[0].Reasoning {
+		t.Fatalf("models = %#v, want official Claude response", models)
+	}
+}
+
+func TestCountTokensUsesOfficialSDK(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/messages/count_tokens" {
+			t.Fatalf("request = %s %s, want POST /v1/messages/count_tokens", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "test-key" {
+			t.Fatalf("X-API-Key = %q, want test-key", got)
+		}
+		if got := r.Header.Get("Anthropic-Version"); got != anthropicVersion {
+			t.Fatalf("Anthropic-Version = %q, want %s", got, anthropicVersion)
+		}
+		return jsonResponse(`{"input_tokens":42}`), nil
+	})
+
+	p := New(WithBaseURL("http://example.invalid"), WithAPIKey("test-key"), WithHTTPClient(client))
+	got, err := p.CountTokens(context.Background(), "claude-test", ai.Context{
+		SystemPrompt: "Be concise.",
+		Messages:     []ai.Message{{Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "hello"}}}},
+	})
+	if err != nil {
+		t.Fatalf("CountTokens: %v", err)
+	}
+	if got != 42 {
+		t.Fatalf("CountTokens = %d, want 42", got)
 	}
 }
 
@@ -207,6 +272,14 @@ func newMockClient(fn func(*http.Request) (*http.Response, error)) *http.Client 
 func sseResponse(events ...string) *http.Response {
 	var body strings.Builder
 	for _, event := range events {
+		var envelope struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(event), &envelope); err == nil && envelope.Type != "" {
+			body.WriteString("event: ")
+			body.WriteString(envelope.Type)
+			body.WriteString("\n")
+		}
 		body.WriteString("data: ")
 		body.WriteString(event)
 		body.WriteString("\n\n")
@@ -215,5 +288,13 @@ func sseResponse(events ...string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body:       io.NopCloser(strings.NewReader(body.String())),
+	}
+}
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }

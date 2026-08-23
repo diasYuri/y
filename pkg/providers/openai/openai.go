@@ -8,24 +8,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
 	"github.com/yuri/y/pkg/providers/auth"
-	"github.com/yuri/y/pkg/providers/internal/retry"
 	"github.com/yuri/y/pkg/providers/internal/retryafter"
+	"github.com/yuri/y/pkg/providers/internal/sdkstream"
 )
 
 const (
-	providerID        = "openai"
-	defaultBaseURL    = "https://api.openai.com/v1"
-	defaultModelID    = "gpt-5"
-	defaultMaxEvent   = 1 << 20
-	maxErrorBodyBytes = 4 << 10
+	providerID      = "openai"
+	defaultBaseURL  = "https://api.openai.com/v1"
+	defaultModelID  = "gpt-5.4-mini"
+	defaultMaxEvent = 1 << 20
 )
 
 // Provider streams OpenAI Responses API events as normalized AI events.
@@ -171,9 +175,28 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 	if p == nil {
 		p = New()
 	}
-	models, err := p.fetchModels(ctx)
-	if err == nil && len(models) > 0 {
-		return models, nil
+	if apiKey := p.resolveAPIKey(""); apiKey != "" {
+		client := p.sdkClient(apiKey, p.responseBaseURL(ai.Model{}), providers.StreamOptions{})
+		page, err := client.Models.List(ctx)
+		if err == nil && page != nil && len(page.Data) > 0 {
+			models := make([]ai.Model, 0, len(page.Data))
+			for _, model := range page.Data {
+				models = append(models, ai.Model{
+					ID:       model.ID,
+					Name:     model.ID,
+					API:      "openai-responses",
+					Provider: providerID,
+					BaseURL:  p.baseURL,
+					Reasoning: strings.HasPrefix(model.ID, "o") ||
+						strings.Contains(model.ID, "reasoning") ||
+						strings.HasPrefix(model.ID, "gpt-5"),
+					Input: []ai.InputKind{ai.InputText, ai.InputImage},
+				})
+			}
+			if len(models) > 0 {
+				return models, nil
+			}
+		}
 	}
 	// Fallback to the curated list (generated from models.json).
 	out := CuratedModels()
@@ -181,71 +204,6 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 		out[i].BaseURL = p.baseURL
 	}
 	return out, nil
-}
-
-type openaiModel struct {
-	ID   string `json:"id"`
-	Root string `json:"root"`
-}
-
-type openaiModelsResponse struct {
-	Models []openaiModel `json:"data"`
-}
-
-func (p *Provider) fetchModels(ctx context.Context) ([]ai.Model, error) {
-	apiKey := p.apiKey
-	if apiKey == "" {
-		apiKey = p.envLookup("OPENAI_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, errors.New("no API key available")
-	}
-
-	cfg := retry.DefaultConfig()
-	var result openaiModelsResponse
-
-	err := retry.Do(ctx, cfg, func() error {
-		req, err := http.NewRequestWithContext(ctx, "GET", p.baseURL+"/models", nil)
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		resp, err := p.httpClient.Do(req)
-		if err != nil {
-			return err
-		}
-		if retry.IsRetryableHTTPStatus(resp.StatusCode) {
-			_ = resp.Body.Close()
-			return fmt.Errorf("models API returned %d", resp.StatusCode)
-		}
-		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
-			return fmt.Errorf("models API returned %d", resp.StatusCode)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		return json.NewDecoder(resp.Body).Decode(&result)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	models := make([]ai.Model, 0, len(result.Models))
-	for _, m := range result.Models {
-		id := m.ID
-		if m.Root != "" {
-			id = m.Root
-		}
-		models = append(models, ai.Model{
-			ID:        id,
-			Name:      id,
-			API:       "openai-responses",
-			Provider:  providerID,
-			BaseURL:   p.baseURL,
-			Reasoning: true,
-			Input:     []ai.InputKind{ai.InputText, ai.InputImage},
-		})
-	}
-	return models, nil
 }
 
 // Stream starts a streaming Responses API request (or Chat Completions for
@@ -275,64 +233,77 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		return nil, errors.New("openai API key is required; set OPENAI_API_KEY or pass APIKey")
 	}
 
-	payload, err := buildRequest(req)
+	payload, err := buildSDKRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("encode openai request: %w", err)
-	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.responseURL(req.Model), bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	for key, value := range req.Options.Headers {
-		if strings.TrimSpace(key) == "" || value == "" {
-			continue
-		}
-		httpReq.Header.Set(key, value)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-
-	if p.inspector != nil {
-		p.inspector(httpReq)
-	}
+	baseURL := p.responseBaseURL(req.Model)
+	client := p.sdkClient(apiKey, baseURL, req.Options)
+	sdkOpts := p.sdkRequestOptions(req.Options)
 	if p.dryRun {
+		p.inspectSDKRequest(ctx, req, payload, apiKey)
 		if cancel != nil {
 			cancel()
 		}
 		return providers.SyntheticDryRunStream(), nil
 	}
 
-	client := p.client()
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, &providers.NetworkError{Provider: providerID, Err: err}
+	upstream := client.Responses.NewStreaming(ctx, payload, sdkOpts...)
+	if upstream.Err() != nil {
+		if cancel != nil {
+			cancel()
+		}
+		_ = upstream.Close()
+		return nil, normalizeOpenAIError(upstream.Err())
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer func() { _ = resp.Body.Close() }()
-		limited, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-		body := strings.TrimSpace(string(limited))
-		return nil, providers.ClassifyHTTPError(p.ID(), resp.StatusCode, retryafter.Parse(resp.Header.Get("Retry-After")), body, nil)
-	}
-
-	return newStream(resp.Body, p.maxEvent, cancel), nil
+	return sdkstream.NewWithNormalize(
+		upstream.Next,
+		upstream.Current,
+		upstream.Err,
+		upstream.Close,
+		newOpenAIConsumer(),
+		normalizeOpenAIError,
+	), nil
 }
 func (p *Provider) client() *http.Client {
-	return providers.ApplyCommonClient(p.httpClient, p.middlewares)
+	return providers.ApplyInspector(providers.ApplyCommonClient(p.httpClient, p.middlewares), p.inspector)
 }
 
-// CountTokens returns a token estimate. OpenAI does not expose a generally
-// available token-count endpoint for the Responses API, so this falls back to
-// the shared providers.EstimateTokens heuristic.
+// CountTokens uses OpenAI's official Responses input-token endpoint and falls
+// back to the shared estimator only when credentials or the endpoint are not
+// available.
 func (p *Provider) CountTokens(ctx context.Context, modelID string, c ai.Context) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	if p == nil {
+		return estimatedTokens(c)
+	}
+	apiKey := p.resolveAPIKey("")
+	if apiKey == "" {
+		return estimatedTokens(c)
+	}
+	if modelID == "" {
+		modelID = defaultModelID
+	}
+	input, err := buildSDKInput(c, false)
+	if err != nil {
+		return 0, err
+	}
+	params := responses.InputTokenCountParams{
+		Model: param.NewOpt(modelID),
+		Input: responses.InputTokenCountParamsInputUnion{OfResponseInputItemArray: input},
+	}
+	client := p.sdkClient(apiKey, p.responseBaseURL(ai.Model{BaseURL: p.baseURL}), providers.StreamOptions{})
+	result, err := client.Responses.InputTokens.Count(ctx, params, option.WithMaxRetries(p.retry.MaxRetries))
+	if err != nil || result == nil || result.InputTokens <= 0 {
+		return estimatedTokens(c)
+	}
+	return result.InputTokens, nil
+}
+
+func estimatedTokens(c ai.Context) (int64, error) {
 	return providers.EstimateTokens(c), nil
 }
 
@@ -383,6 +354,10 @@ func (p *Provider) resolveAPIKey(requestKey string) string {
 }
 
 func (p *Provider) responseURL(model ai.Model) string {
+	return p.responseBaseURL(model) + "/responses"
+}
+
+func (p *Provider) responseBaseURL(model ai.Model) string {
 	baseURL := p.baseURL
 	if model.BaseURL != "" {
 		baseURL = strings.TrimRight(model.BaseURL, "/")
@@ -390,185 +365,214 @@ func (p *Provider) responseURL(model ai.Model) string {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	return baseURL + "/responses"
+	return baseURL
 }
 
-type responseRequest struct {
-	Model            string          `json:"model"`
-	Input            []inputItem     `json:"input"`
-	Stream           bool            `json:"stream"`
-	Store            bool            `json:"store"`
-	MaxOutputTokens  int64           `json:"max_output_tokens,omitempty"`
-	Temperature      *float64        `json:"temperature,omitempty"`
-	PromptCacheKey   string          `json:"prompt_cache_key,omitempty"`
-	PromptCacheRet   string          `json:"prompt_cache_retention,omitempty"`
-	Tools            []toolParam     `json:"tools,omitempty"`
-	Reasoning        *reasoningParam `json:"reasoning,omitempty"`
-	Include          []string        `json:"include,omitempty"`
-	IncludeObfuscate bool            `json:"include_obfuscation"`
+func (p *Provider) sdkClient(apiKey, baseURL string, opts providers.StreamOptions) openaisdk.Client {
+	requestOptions := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+		option.WithBaseURL(strings.TrimRight(baseURL, "/") + "/"),
+		option.WithHTTPClient(sdkstream.LimitClient(p.client(), p.maxEvent)),
+		option.WithMaxRetries(p.retry.MaxRetries),
+	}
+	if opts.MaxRetries > 0 {
+		requestOptions = append(requestOptions, option.WithMaxRetries(opts.MaxRetries))
+	}
+	return openaisdk.NewClient(requestOptions...)
 }
 
-type reasoningParam struct {
-	Effort string `json:"effort"`
+func (p *Provider) sdkRequestOptions(opts providers.StreamOptions) []option.RequestOption {
+	out := make([]option.RequestOption, 0, len(opts.Headers)+1)
+	for key, value := range opts.Headers {
+		if strings.TrimSpace(key) != "" && value != "" {
+			out = append(out, option.WithHeader(key, value))
+		}
+	}
+	if opts.Timeout > 0 {
+		out = append(out, option.WithRequestTimeout(opts.Timeout))
+	}
+	return out
 }
 
-type inputItem struct {
-	Type    string         `json:"type,omitempty"`
-	Role    string         `json:"role,omitempty"`
-	Content []inputContent `json:"content,omitempty"`
-	CallID  string         `json:"call_id,omitempty"`
-	Output  any            `json:"output,omitempty"`
-	ID      string         `json:"id,omitempty"`
-	Name    string         `json:"name,omitempty"`
-	Args    string         `json:"arguments,omitempty"`
-	Status  string         `json:"status,omitempty"`
+func (p *Provider) inspectSDKRequest(ctx context.Context, req providers.StreamRequest, payload responses.ResponseNewParams, apiKey string) {
+	if p.inspector == nil {
+		return
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.responseURL(req.Model), bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	for key, value := range req.Options.Headers {
+		if strings.TrimSpace(key) != "" && value != "" {
+			httpReq.Header.Set(key, value)
+		}
+	}
+	p.inspector(httpReq)
 }
 
-type inputContent struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-}
-
-type toolParam struct {
-	Type        string          `json:"type"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
-	Strict      bool            `json:"strict"`
-}
-
-func buildRequest(req providers.StreamRequest) (responseRequest, error) {
+func buildSDKRequest(req providers.StreamRequest) (responses.ResponseNewParams, error) {
 	modelID := req.Model.ID
 	if modelID == "" {
 		modelID = defaultModelID
 	}
-	out := responseRequest{
-		Model:            modelID,
-		Stream:           true,
-		Store:            false,
-		IncludeObfuscate: false,
+	input, err := buildSDKInput(req.Context, req.Model.Reasoning)
+	if err != nil {
+		return responses.ResponseNewParams{}, err
+	}
+	out := responses.ResponseNewParams{
+		Model: shared.ResponsesModel(modelID),
+		Input: responses.ResponseNewParamsInputUnion{OfInputItemList: input},
+		Store: param.NewOpt(false),
 	}
 	if req.Options.MaxTokens > 0 {
-		out.MaxOutputTokens = req.Options.MaxTokens
+		out.MaxOutputTokens = param.NewOpt(req.Options.MaxTokens)
 	}
 	if req.Options.Temperature != nil {
-		out.Temperature = req.Options.Temperature
+		out.Temperature = param.NewOpt(*req.Options.Temperature)
 	}
 	if req.Options.CacheRetention != ai.CacheRetentionNone && req.Options.SessionID != "" {
-		out.PromptCacheKey = req.Options.SessionID
+		out.PromptCacheKey = param.NewOpt(req.Options.SessionID)
 		if req.Options.CacheRetention == ai.CacheRetentionLong {
-			out.PromptCacheRet = "24h"
+			out.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
 		}
 	}
-	if req.Model.Reasoning && req.Options.Reasoning != "" {
-		out.Reasoning = &reasoningParam{Effort: string(req.Options.Reasoning)}
-		out.Include = []string{"reasoning.encrypted_content"}
-	}
-
-	if req.Context.SystemPrompt != "" {
-		role := "system"
-		if req.Model.Reasoning {
-			role = "developer"
-		}
-		out.Input = append(out.Input, inputItem{
-			Role: role,
-			Content: []inputContent{{
-				Type: "input_text",
-				Text: req.Context.SystemPrompt,
-			}},
-		})
-	}
-	for _, msg := range req.Context.Messages {
-		items, err := convertMessage(msg)
-		if err != nil {
-			return responseRequest{}, err
-		}
-		out.Input = append(out.Input, items...)
+	if req.Options.Reasoning != "" && req.Model.Reasoning {
+		out.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(string(req.Options.Reasoning))}
+		out.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
 	}
 	for _, tool := range req.Context.Tools {
-		out.Tools = append(out.Tools, toolParam{
-			Type:        "function",
+		var schema map[string]any
+		if len(tool.InputSchema) > 0 {
+			if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+				return responses.ResponseNewParams{}, fmt.Errorf("decode tool %q schema: %w", tool.Name, err)
+			}
+		}
+		out.Tools = append(out.Tools, responses.ToolUnionParam{OfFunction: &responses.FunctionToolParam{
 			Name:        tool.Name,
-			Description: tool.Description,
-			Parameters:  tool.InputSchema,
-			Strict:      false,
-		})
+			Description: param.NewOpt(tool.Description),
+			Parameters:  schema,
+			Strict:      param.NewOpt(false),
+		}})
 	}
 	return out, nil
 }
 
-func convertMessage(msg ai.Message) ([]inputItem, error) {
-	switch msg.Role {
-	case ai.RoleUser:
-		content, err := convertContent(msg.Content, "input_text")
+func buildSDKInput(c ai.Context, reasoning bool) (responses.ResponseInputParam, error) {
+	var input responses.ResponseInputParam
+	if c.SystemPrompt != "" {
+		content := responses.ResponseInputMessageContentListParam{
+			responses.ResponseInputContentParamOfInputText(c.SystemPrompt),
+		}
+		role := responses.EasyInputMessageRoleSystem
+		if reasoning {
+			role = responses.EasyInputMessageRoleDeveloper
+		}
+		input = append(input, responses.ResponseInputItemParamOfMessage(content, role))
+	}
+	for _, msg := range c.Messages {
+		items, err := buildSDKMessage(msg)
 		if err != nil {
 			return nil, err
 		}
-		if len(content) == 0 {
-			return nil, nil
-		}
-		return []inputItem{{Role: "user", Content: content}}, nil
-	case ai.RoleAssistant:
-		items := make([]inputItem, 0, 1+len(msg.ToolCalls))
-		content, err := convertContent(msg.Content, "output_text")
+		input = append(input, items...)
+	}
+	return input, nil
+}
+
+func buildSDKMessage(msg ai.Message) ([]responses.ResponseInputItemUnionParam, error) {
+	switch msg.Role {
+	case ai.RoleUser, ai.RoleAssistant:
+		content, err := buildSDKContent(msg.Content)
 		if err != nil {
 			return nil, err
 		}
 		if len(content) > 0 {
-			items = append(items, inputItem{Role: "assistant", Content: content, Status: "completed"})
-		}
-		for _, call := range msg.ToolCalls {
-			args := string(call.Arguments)
-			if args == "" {
-				args = "{}"
+			role := responses.EasyInputMessageRoleUser
+			if msg.Role == ai.RoleAssistant {
+				role = responses.EasyInputMessageRoleAssistant
 			}
-			callID, itemID := splitToolCallID(call.ID)
-			items = append(items, inputItem{
-				Type:   "function_call",
-				ID:     itemID,
-				CallID: callID,
-				Name:   call.Name,
-				Args:   args,
-			})
+			items := []responses.ResponseInputItemUnionParam{
+				responses.ResponseInputItemParamOfMessage(content, role),
+			}
+			for _, call := range msg.ToolCalls {
+				items = append(items, buildSDKFunctionCall(call))
+			}
+			return items, nil
 		}
-		return items, nil
+		return buildSDKToolCalls(msg.ToolCalls), nil
 	case ai.RoleToolResult:
 		if msg.ToolResult == nil {
 			return nil, nil
 		}
 		callID, _ := splitToolCallID(msg.ToolResult.ToolCallID)
-		output := toolResultOutput(msg.ToolResult.Content)
-		return []inputItem{{
-			Type:   "function_call_output",
-			CallID: callID,
-			Output: output,
-		}}, nil
+		return []responses.ResponseInputItemUnionParam{
+			responses.ResponseInputItemParamOfFunctionCallOutput(callID, toolResultText(msg.ToolResult.Content)),
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported message role %q", msg.Role)
 	}
 }
 
-func convertContent(blocks []ai.ContentBlock, textType string) ([]inputContent, error) {
-	content := make([]inputContent, 0, len(blocks))
+func toolResultText(blocks []ai.ContentBlock) string {
+	var b strings.Builder
+	for _, block := range blocks {
+		if block.Type != ai.ContentText {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(block.Text)
+	}
+	return b.String()
+}
+
+func buildSDKToolCalls(calls []ai.ToolCall) []responses.ResponseInputItemUnionParam {
+	items := make([]responses.ResponseInputItemUnionParam, 0, len(calls))
+	for _, call := range calls {
+		items = append(items, buildSDKFunctionCall(call))
+	}
+	return items
+}
+
+func buildSDKFunctionCall(call ai.ToolCall) responses.ResponseInputItemUnionParam {
+	args := string(call.Arguments)
+	if args == "" {
+		args = "{}"
+	}
+	callID, itemID := splitToolCallID(call.ID)
+	item := responses.ResponseInputItemParamOfFunctionCall(args, callID, call.Name)
+	if item.OfFunctionCall != nil && itemID != "" {
+		item.OfFunctionCall.ID = param.NewOpt(itemID)
+	}
+	return item
+}
+
+func buildSDKContent(blocks []ai.ContentBlock) (responses.ResponseInputMessageContentListParam, error) {
+	content := make(responses.ResponseInputMessageContentListParam, 0, len(blocks))
 	for _, block := range blocks {
 		switch block.Type {
 		case ai.ContentText:
 			if block.Text != "" {
-				content = append(content, inputContent{Type: textType, Text: block.Text})
+				content = append(content, responses.ResponseInputContentParamOfInputText(block.Text))
 			}
 		case ai.ContentImage:
 			if len(block.ImageData) == 0 || block.ImageMIMEType == "" {
 				continue
 			}
-			content = append(content, inputContent{
-				Type:     "input_image",
-				ImageURL: "data:" + block.ImageMIMEType + ";base64," + base64.StdEncoding.EncodeToString(block.ImageData),
-				Detail:   "auto",
-			})
+			part := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+			part.OfInputImage.ImageURL = param.NewOpt("data:" + block.ImageMIMEType + ";base64," + base64.StdEncoding.EncodeToString(block.ImageData))
+			content = append(content, part)
 		case ai.ContentThinking:
-			continue
+			// OpenAI reasoning items require encrypted provider content. The
+			// normalized transcript does not expose that payload.
 		default:
 			return nil, fmt.Errorf("unsupported content type %q", block.Type)
 		}
@@ -576,39 +580,70 @@ func convertContent(blocks []ai.ContentBlock, textType string) ([]inputContent, 
 	return content, nil
 }
 
-func toolResultOutput(blocks []ai.ContentBlock) any {
-	text := strings.Builder{}
-	var imageParts []inputContent
-	for _, block := range blocks {
-		switch block.Type {
-		case ai.ContentText:
-			if text.Len() > 0 {
-				text.WriteByte('\n')
+type openAIStreamState struct {
+	toolIDs map[string]string
+	sawTool bool
+}
+
+func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
+	state := &openAIStreamState{toolIDs: make(map[string]string)}
+	return func(event responses.ResponseStreamEventUnion) []ai.Event {
+		switch event.Type {
+		case "response.output_text.delta":
+			return []ai.Event{ai.TextDelta{ContentIndex: int(event.ContentIndex), Text: event.Delta}}
+		case "response.output_item.added":
+			if event.Item.Type == "function_call" {
+				call := event.Item.AsFunctionCall()
+				state.toolIDs[call.ID] = call.CallID
+				state.sawTool = true
 			}
-			text.WriteString(block.Text)
-		case ai.ContentImage:
-			if len(block.ImageData) == 0 || block.ImageMIMEType == "" {
-				continue
+		case "response.function_call_arguments.delta":
+			state.sawTool = true
+			callID := state.toolIDs[event.ItemID]
+			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID}, ArgumentsDelta: json.RawMessage(event.Delta), Complete: false}}
+		case "response.function_call_arguments.done":
+			state.sawTool = true
+			callID := state.toolIDs[event.ItemID]
+			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID, Name: event.Name, Arguments: json.RawMessage(event.Arguments)}, Complete: true}}
+		case "response.completed", "response.incomplete":
+			response := event.Response
+			var events []ai.Event
+			if response.Usage.TotalTokens != 0 || response.Usage.InputTokens != 0 || response.Usage.OutputTokens != 0 {
+				events = append(events, ai.UsageEvent{Usage: ai.Usage{InputTokens: response.Usage.InputTokens - response.Usage.InputTokensDetails.CachedTokens, OutputTokens: response.Usage.OutputTokens, CacheReadTokens: response.Usage.InputTokensDetails.CachedTokens, CacheWriteTokens: response.Usage.InputTokensDetails.CacheWriteTokens, TotalTokens: response.Usage.TotalTokens}})
 			}
-			imageParts = append(imageParts, inputContent{
-				Type:     "input_image",
-				ImageURL: "data:" + block.ImageMIMEType + ";base64," + base64.StdEncoding.EncodeToString(block.ImageData),
-				Detail:   "auto",
-			})
+			reason := ai.StopReasonStop
+			if state.sawTool {
+				reason = ai.StopReasonToolUse
+			}
+			if event.Type == "response.incomplete" {
+				reason = ai.StopReasonLength
+			}
+			return append(events, ai.StopEvent{Reason: reason})
+		case "response.failed", "error":
+			message := event.Message
+			if message == "" {
+				message = event.Code
+			}
+			return []ai.Event{ai.NewErrorEvent("openai_stream_error", errors.New(message))}
 		}
+		return nil
 	}
-	if len(imageParts) == 0 {
-		if text.Len() == 0 {
-			return ""
+}
+
+func normalizeOpenAIError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *openaisdk.Error
+	if errors.As(err, &apiErr) {
+		status := apiErr.StatusCode
+		var retryAfter time.Duration
+		if apiErr.Response != nil {
+			retryAfter = retryafter.Parse(apiErr.Response.Header.Get("Retry-After"))
 		}
-		return text.String()
+		return providers.ClassifyHTTPError(providerID, status, retryAfter, apiErr.Error(), err)
 	}
-	parts := make([]inputContent, 0, len(imageParts)+1)
-	if text.Len() > 0 {
-		parts = append(parts, inputContent{Type: "input_text", Text: text.String()})
-	}
-	parts = append(parts, imageParts...)
-	return parts
+	return &providers.NetworkError{Provider: providerID, Message: err.Error(), Err: err}
 }
 
 func splitToolCallID(id string) (callID, itemID string) {

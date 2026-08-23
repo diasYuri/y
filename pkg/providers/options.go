@@ -48,6 +48,34 @@ func ApplyCommonClient(client *http.Client, mws []Middleware) *http.Client {
 	return &out
 }
 
+// ApplyInspector returns a client copy that invokes inspector after the SDK
+// has built the request and immediately before the transport sends it.
+func ApplyInspector(client *http.Client, inspector RequestInspector) *http.Client {
+	if inspector == nil {
+		return client
+	}
+	if client == nil {
+		client = &http.Client{}
+	}
+	out := *client
+	base := client.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	out.Transport = inspectorTransport{inspector: inspector, next: base}
+	return &out
+}
+
+type inspectorTransport struct {
+	inspector RequestInspector
+	next      http.RoundTripper
+}
+
+func (t inspectorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.inspector(req)
+	return t.next.RoundTrip(req)
+}
+
 // CommonOptions is the embeddable options struct shared by every concrete
 // provider implementation. Providers compose this with their provider-specific
 // fields (apiKey, baseURL, model defaults, etc.) and reuse the helpers below

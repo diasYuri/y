@@ -1,15 +1,15 @@
 // coding-agent demonstrates building an agentic development application
-// using the y SDK with the Anthropic provider.
+// using the y SDK with the OPENAI provider.
 //
-// Usage with Anthropic API:
+// Usage with OPENAI API:
 //
-//	export ANTHROPIC_API_KEY=sk-ant-...
+//	export OPENAI_API_KEY=sk-ant-...
 //	go run . "Refactor the main function to use context properly"
 //
-// Usage with Kimi Code (Anthropic-compatible endpoint):
+// Usage with Kimi Code (OPENAI-compatible endpoint):
 //
-//	export ANTHROPIC_BASE_URL=https://api.kimi.com/coding/
-//	export ANTHROPIC_API_KEY=$KIMI_API_KEY
+//	export OPENAI_BASE_URL=https://api.kimi.com/coding/
+//	export OPENAI_API_KEY=$KIMI_API_KEY
 //	go run . "Explain this codebase"
 package main
 
@@ -24,7 +24,7 @@ import (
 
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers/anthropic"
+	"github.com/yuri/y/pkg/providers/openai"
 	"github.com/yuri/y/pkg/tools"
 )
 
@@ -40,35 +40,33 @@ func run() error {
 	defer stop()
 
 	// ── Provider Setup ───────────────────────────────────────────────
-	// Create an Anthropic provider. Supports Anthropic API or compatible
-	// endpoints (e.g. Kimi Code via ANTHROPIC_BASE_URL).
+	// Create an OPENAI provider. Supports OPENAI API or compatible
+	// endpoints (e.g. Kimi Code via OPENAI_BASE_URL).
 	//
 	// Auth priority:
 	// 1. WithAPIKey option (below)
-	// 2. ANTHROPIC_OAUTH_TOKEN env var (Bearer token)
-	// 3. ANTHROPIC_API_KEY env var
+	// 2. OPENAI_OAUTH_TOKEN env var (Bearer token)
+	// 3. OPENAI_API_KEY env var
 	//
 	// Base URL priority:
 	// 1. WithBaseURL option (below)
-	// 2. ANTHROPIC_BASE_URL env var
-	fmt.Println(os.Getenv("ANTHROPIC_API_KEY"))
-	fmt.Println(os.Getenv("ANTHROPIC_BASE_URL"))
-	anthropicOpts := []anthropic.Option{
-		anthropic.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
-		anthropic.WithBaseURL(os.Getenv("ANTHROPIC_BASE_URL")),
+	// 2. OPENAI_BASE_URL env var
+	openaiOpts := []openai.Option{
+		openai.WithAPIKey(os.Getenv("OPENROUTER_API_KEY")),
+		openai.WithBaseURL(os.Getenv("OPENROUTER_BASE_URL")),
 	}
-	provider := anthropic.New(anthropicOpts...)
+	provider := openai.New(openaiOpts...)
 
 	// ── Model Selection ──────────────────────────────────────────────
-	// Use Claude Sonnet for Anthropic API or kimi-compatible model for
+	// Use Claude Sonnet for OPENAI API or kimi-compatible model for
 	// Kimi Code endpoint. You can also let the agent auto-select the
 	// first available model from the provider.
-	modelID := "kimi-k2p6"
-	modelName := "Kimi K2.6"
+	modelID := "google/gemini-3.7-flash"
+	modelName := "google/gemini-3.7-flash"
 	model := ai.Model{
 		ID:        modelID,
 		Name:      modelName,
-		Provider:  "anthropic",
+		Provider:  "openai_compatible",
 		Reasoning: true,
 		Input:     []ai.InputKind{ai.InputText},
 	}
@@ -77,7 +75,7 @@ func run() error {
 	// Create a registry and register built-in y SDK tools: filesystem,
 	// shell, and git. A permissive policy allows sensitive tools like
 	// write_file and edit to run without interactive approval.
-	workspaceRoot := mustGetwd() + "/workspace"
+	workspaceRoot := mustGetwd() + "/examples/coding-agent/workspace"
 	registry := tools.NewRegistry(
 		tools.WithPolicy(tools.PolicyFunc(func(ctx context.Context, req tools.PolicyRequest) (tools.PolicyDecision, error) {
 			return tools.PolicyDecision{Kind: tools.DecisionAllow}, nil
@@ -116,7 +114,7 @@ func run() error {
 	// Interactive REPL mode.
 	fmt.Println("\n\x1b[1;32mCoding Agent\x1b[0m — type a prompt or 'quit' to exit")
 	fmt.Println("Model:", model.Name, "("+model.ID+")")
-	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
 		fmt.Println("Base URL:", baseURL)
 	}
 	fmt.Println("Workspace:", mustGetwd())
@@ -253,4 +251,35 @@ func mustGetwd() string {
 		panic(err)
 	}
 	return wd
+}
+
+// permissivePolicy allows all tool operations without interactive approval.
+// Suitable for local development; use WorkspacePolicy() in production.
+var permissivePolicy = tools.PolicyFunc(func(ctx context.Context, req tools.PolicyRequest) (tools.PolicyDecision, error) {
+	return tools.PolicyDecision{Kind: tools.DecisionAllow}, nil
+})
+
+// registerCodingTools registers the y SDK built-in tools.
+//
+// The SDK provides pre-built tool families:
+//   - RegisterFilesystem: read_file, write_file, list_files, search, edit, patch
+//   - RegisterShell:      run_command (subprocess execution)
+//   - RegisterGit:        git_status, git_diff, git_commit
+func registerCodingTools(registry *tools.Registry, workspaceRoot string) error {
+	if err := tools.RegisterFilesystem(registry, tools.FilesystemOptions{
+		WorkspaceRoot: workspaceRoot,
+		Policy:        permissivePolicy,
+	}); err != nil {
+		return err
+	}
+	if err := tools.RegisterShell(registry, tools.ShellOptions{
+		WorkspaceRoot: workspaceRoot,
+		Policy:        permissivePolicy,
+	}); err != nil {
+		return err
+	}
+	return tools.RegisterGit(registry, tools.GitOptions{
+		WorkspaceRoot: workspaceRoot,
+		Policy:        permissivePolicy,
+	})
 }
