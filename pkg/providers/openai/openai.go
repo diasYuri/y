@@ -190,7 +190,8 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 					Reasoning: strings.HasPrefix(model.ID, "o") ||
 						strings.Contains(model.ID, "reasoning") ||
 						strings.HasPrefix(model.ID, "gpt-5"),
-					Input: []ai.InputKind{ai.InputText, ai.InputImage},
+					Input:        []ai.InputKind{ai.InputText, ai.InputImage},
+					Capabilities: ai.ModelCapabilities{StructuredOutput: true},
 				})
 			}
 			if len(models) > 0 {
@@ -202,6 +203,7 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 	out := CuratedModels()
 	for i := range out {
 		out[i].BaseURL = p.baseURL
+		out[i].Capabilities.StructuredOutput = true
 	}
 	return out, nil
 }
@@ -225,6 +227,9 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		}()
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := providers.ValidateStructuredOutputRequest(req, providerID, p.Capabilities(req.Model.ID)); err != nil {
 		return nil, err
 	}
 
@@ -323,12 +328,13 @@ func (p *Provider) Capabilities(modelID string) providers.Capabilities {
 		return providers.Capabilities{}
 	}
 	return providers.Capabilities{
-		Vision:      true,
-		Tools:       true,
-		Reasoning:   true,
-		PromptCache: true,
-		JSONMode:    true,
-		Streaming:   true,
+		Vision:           true,
+		Tools:            true,
+		Reasoning:        true,
+		PromptCache:      true,
+		JSONMode:         true,
+		StructuredOutput: true,
+		Streaming:        true,
 	}
 }
 
@@ -468,6 +474,9 @@ func buildSDKRequest(req providers.StreamRequest) (responses.ResponseNewParams, 
 		out.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(string(req.Options.Reasoning))}
 		out.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
 	}
+	if err := applyOpenAIResponseFormat(&out, req.Options.ResponseFormat); err != nil {
+		return responses.ResponseNewParams{}, err
+	}
 	for _, tool := range req.Context.Tools {
 		var schema map[string]any
 		if len(tool.InputSchema) > 0 {
@@ -483,6 +492,36 @@ func buildSDKRequest(req providers.StreamRequest) (responses.ResponseNewParams, 
 		}})
 	}
 	return out, nil
+}
+
+func applyOpenAIResponseFormat(out *responses.ResponseNewParams, format *ai.ResponseFormat) error {
+	if format == nil || format.Type == ai.ResponseFormatText {
+		return nil
+	}
+	switch format.Type {
+	case ai.ResponseFormatJSONObject:
+		out.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+			OfJSONObject: func() *shared.ResponseFormatJSONObjectParam {
+				value := shared.NewResponseFormatJSONObjectParam()
+				return &value
+			}(),
+		}
+	case ai.ResponseFormatJSONSchema:
+		schema, err := format.SchemaMap()
+		if err != nil {
+			return err
+		}
+		out.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+			OfJSONSchema: &responses.ResponseFormatTextJSONSchemaConfigParam{
+				Name:   format.Name,
+				Schema: schema,
+				Strict: param.NewOpt(format.Strict),
+			},
+		}
+	default:
+		return fmt.Errorf("unsupported OpenAI response format %q", format.Type)
+	}
+	return nil
 }
 
 func buildSDKInput(c ai.Context, reasoning bool) (responses.ResponseInputParam, error) {

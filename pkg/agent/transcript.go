@@ -59,6 +59,7 @@ func cloneMessage(message ai.Message) ai.Message {
 		ModelID:          message.ModelID,
 		StopReason:       message.StopReason,
 		Usage:            message.Usage,
+		StructuredOutput: append([]byte(nil), message.StructuredOutput...),
 		Details:          append([]byte(nil), message.Details...),
 		ProviderMetadata: append([]byte(nil), message.ProviderMetadata...),
 	}

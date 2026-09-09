@@ -2,8 +2,10 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/yuri/y/pkg/ai"
@@ -61,5 +63,32 @@ func TestNewCompatibleReturnsCompatibleProvider(t *testing.T) {
 	defer p.Close()
 	if p.ID() != "openai-compatible" {
 		t.Fatalf("ID() = %q, want openai-compatible", p.ID())
+	}
+}
+
+func TestBuildSDKRequestStructuredOutput(t *testing.T) {
+	payload, err := buildSDKRequest(providers.StreamRequest{
+		Model: ai.Model{ID: "gpt-test"},
+		Options: providers.StreamOptions{
+			ResponseFormat: &ai.ResponseFormat{
+				Type:   ai.ResponseFormatJSONSchema,
+				Name:   "answer",
+				Strict: true,
+				Schema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildSDKRequest: %v", err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	encoded := string(raw)
+	for _, want := range []string{`"text"`, `"type":"json_schema"`, `"name":"answer"`, `"strict":true`, `"answer"`} {
+		if !strings.Contains(encoded, want) {
+			t.Fatalf("payload %s missing %q", encoded, want)
+		}
 	}
 }

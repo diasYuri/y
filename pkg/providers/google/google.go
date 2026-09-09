@@ -174,6 +174,7 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 							Input:         []ai.InputKind{ai.InputText, ai.InputImage},
 							ContextWindow: int64(model.InputTokenLimit),
 							MaxTokens:     int64(model.OutputTokenLimit),
+							Capabilities:  ai.ModelCapabilities{StructuredOutput: true},
 						})
 					}
 					if page.NextPageToken == "" {
@@ -197,6 +198,7 @@ func (p *Provider) curatedModels() []ai.Model {
 	out := CuratedModels()
 	for i := range out {
 		out[i].BaseURL = p.baseURL
+		out[i].Capabilities.StructuredOutput = true
 	}
 	return out
 }
@@ -219,6 +221,9 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		}()
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := providers.ValidateStructuredOutputRequest(req, providerID, p.Capabilities(req.Model.ID)); err != nil {
 		return nil, err
 	}
 
@@ -482,6 +487,16 @@ func buildSDKRequest(req providers.StreamRequest, httpOptions genai.HTTPOptions)
 		config.ThinkingConfig = &genai.ThinkingConfig{IncludeThoughts: true, ThinkingBudget: &budget}
 	}
 	applyGoogleExtras(config, req.Options.Extras)
+	if format := req.Options.ResponseFormat; format != nil && format.Type != ai.ResponseFormatText {
+		config.ResponseMIMEType = "application/json"
+		if format.Type == ai.ResponseFormatJSONSchema {
+			schema, err := format.SchemaMap()
+			if err != nil {
+				return nil, nil, err
+			}
+			config.ResponseJsonSchema = schema
+		}
+	}
 	return contents, config, nil
 }
 
@@ -724,10 +739,11 @@ func (p *Provider) Capabilities(modelID string) providers.Capabilities {
 		return providers.Capabilities{}
 	}
 	caps := providers.Capabilities{
-		Vision:    true,
-		Tools:     true,
-		JSONMode:  true,
-		Streaming: true,
+		Vision:           true,
+		Tools:            true,
+		JSONMode:         true,
+		StructuredOutput: true,
+		Streaming:        true,
 	}
 	lc := strings.ToLower(modelID)
 	if strings.Contains(lc, "2.5") || strings.Contains(lc, "thinking") {

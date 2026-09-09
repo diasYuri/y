@@ -260,6 +260,7 @@ func (s *SQLiteStore) ReadTranscript(ctx context.Context, sessionID string) ([]a
 			ModelID:          sm.ModelID,
 			StopReason:       ai.StopReason(sm.StopReason),
 			Usage:            sm.Usage,
+			StructuredOutput: append(json.RawMessage(nil), sm.StructuredOutput...),
 			ProviderMetadata: append(json.RawMessage(nil), sm.ProviderMetadata...),
 			Details:          append(json.RawMessage(nil), sm.Details...),
 			Error:            sm.Error,

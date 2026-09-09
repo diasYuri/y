@@ -62,6 +62,7 @@ type SessionMessage struct {
 	ModelID          string                `json:"model_id,omitempty"`
 	StopReason       string                `json:"stop_reason,omitempty"`
 	Usage            ai.Usage              `json:"usage,omitempty"`
+	StructuredOutput json.RawMessage       `json:"structured_output,omitempty"`
 	ProviderMetadata json.RawMessage       `json:"provider_metadata,omitempty"`
 	Details          json.RawMessage       `json:"details,omitempty"`
 	Error            *ai.ProviderError     `json:"error,omitempty"`
@@ -523,6 +524,7 @@ func toSessionMessage(message ai.Message) SessionMessage {
 		ModelID:          message.ModelID,
 		StopReason:       string(message.StopReason),
 		Usage:            message.Usage,
+		StructuredOutput: append(json.RawMessage(nil), message.StructuredOutput...),
 		ProviderMetadata: append(json.RawMessage(nil), message.ProviderMetadata...),
 		Details:          append(json.RawMessage(nil), message.Details...),
 		Error:            message.Error,

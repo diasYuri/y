@@ -142,13 +142,25 @@ func (c *Catalog) refresh(ctx context.Context, id ai.ProviderID, provider Provid
 		if models[i].Provider != id {
 			return fmt.Errorf("provider %s returned model %s owned by %s", id, models[i].ID, models[i].Provider)
 		}
+		providerCaps := provider.Capabilities(models[i].ID)
 		if models[i].Capabilities == (ai.ModelCapabilities{}) {
 			models[i].Capabilities = ai.ModelCapabilities{
-				Vision:    containsInput(models[i].Input, ai.InputImage),
-				Tools:     true,
-				Reasoning: models[i].Reasoning,
-				Streaming: true,
+				Vision:           providerCaps.Vision || containsInput(models[i].Input, ai.InputImage),
+				Tools:            providerCaps.Tools,
+				Reasoning:        providerCaps.Reasoning || models[i].Reasoning,
+				PromptCache:      providerCaps.PromptCache,
+				JSONMode:         providerCaps.JSONMode,
+				StructuredOutput: providerCaps.StructuredOutput,
+				Streaming:        providerCaps.Streaming,
 			}
+		} else {
+			models[i].Capabilities.Vision = models[i].Capabilities.Vision || providerCaps.Vision
+			models[i].Capabilities.Tools = models[i].Capabilities.Tools || providerCaps.Tools
+			models[i].Capabilities.Reasoning = models[i].Capabilities.Reasoning || providerCaps.Reasoning
+			models[i].Capabilities.PromptCache = models[i].Capabilities.PromptCache || providerCaps.PromptCache
+			models[i].Capabilities.JSONMode = models[i].Capabilities.JSONMode || providerCaps.JSONMode
+			models[i].Capabilities.StructuredOutput = models[i].Capabilities.StructuredOutput || providerCaps.StructuredOutput
+			models[i].Capabilities.Streaming = models[i].Capabilities.Streaming || providerCaps.Streaming
 		}
 	}
 	c.mu.Lock()

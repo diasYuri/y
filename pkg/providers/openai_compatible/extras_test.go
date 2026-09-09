@@ -2,6 +2,7 @@ package openai_compatible
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -90,5 +91,44 @@ func TestCountTokensEstimate(t *testing.T) {
 	}
 	if got <= 0 {
 		t.Fatalf("CountTokens = %d, want > 0", got)
+	}
+}
+
+func TestBuildRequestStructuredOutput(t *testing.T) {
+	payload, err := buildRequest(providers.StreamRequest{
+		Model: ai.Model{ID: "local-model"},
+		Options: providers.StreamOptions{ResponseFormat: &ai.ResponseFormat{
+			Type:   ai.ResponseFormatJSONSchema,
+			Name:   "answer",
+			Strict: true,
+			Schema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("buildRequest: %v", err)
+	}
+	if payload.ResponseFormat == nil || payload.ResponseFormat.Type != "json_schema" || payload.ResponseFormat.JSONSchema == nil {
+		t.Fatalf("response format = %#v", payload.ResponseFormat)
+	}
+	if !payload.ResponseFormat.JSONSchema.Strict || payload.ResponseFormat.JSONSchema.Name != "answer" {
+		t.Fatalf("json schema config = %#v", payload.ResponseFormat.JSONSchema)
+	}
+}
+
+func TestStructuredOutputRequiresModelCapability(t *testing.T) {
+	p := New(WithAPIKey("test-key"))
+	defer p.Close()
+	_, err := p.Stream(context.Background(), providers.StreamRequest{
+		Model: ai.Model{ID: "local-model"},
+		Context: ai.Context{Messages: []ai.Message{{
+			Role:    ai.RoleUser,
+			Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "hello"}},
+		}}},
+		Options: providers.StreamOptions{ResponseFormat: &ai.ResponseFormat{
+			Type: ai.ResponseFormatJSONObject,
+		}},
+	})
+	if !errors.Is(err, providers.ErrStructuredOutputUnsupported) {
+		t.Fatalf("error = %v, want ErrStructuredOutputUnsupported", err)
 	}
 }

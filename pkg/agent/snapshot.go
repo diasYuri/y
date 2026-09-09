@@ -143,6 +143,7 @@ type StreamOptionsSnapshot struct {
 	MaxRetryDelay   time.Duration              `json:"max_retry_delay,omitempty"`
 	Reasoning       ai.ThinkingLevel           `json:"reasoning,omitempty"`
 	ThinkingBudgets map[ai.ThinkingLevel]int64 `json:"thinking_budgets,omitempty"`
+	ResponseFormat  *ai.ResponseFormat         `json:"response_format,omitempty"`
 }
 
 func streamOptionsToSnapshot(opts providers.StreamOptions) StreamOptionsSnapshot {
@@ -154,6 +155,7 @@ func streamOptionsToSnapshot(opts providers.StreamOptions) StreamOptionsSnapshot
 		MaxRetries:     opts.MaxRetries,
 		MaxRetryDelay:  opts.MaxRetryDelay,
 		Reasoning:      opts.Reasoning,
+		ResponseFormat: cloneResponseFormat(opts.ResponseFormat),
 	}
 	if len(opts.ThinkingBudgets) > 0 {
 		out.ThinkingBudgets = make(map[ai.ThinkingLevel]int64, len(opts.ThinkingBudgets))
@@ -173,6 +175,7 @@ func streamOptionsFromSnapshot(s StreamOptionsSnapshot) providers.StreamOptions 
 		MaxRetries:     s.MaxRetries,
 		MaxRetryDelay:  s.MaxRetryDelay,
 		Reasoning:      s.Reasoning,
+		ResponseFormat: cloneResponseFormat(s.ResponseFormat),
 	}
 	if len(s.ThinkingBudgets) > 0 {
 		out.ThinkingBudgets = make(map[ai.ThinkingLevel]int64, len(s.ThinkingBudgets))
@@ -181,6 +184,15 @@ func streamOptionsFromSnapshot(s StreamOptionsSnapshot) providers.StreamOptions 
 		}
 	}
 	return out
+}
+
+func cloneResponseFormat(format *ai.ResponseFormat) *ai.ResponseFormat {
+	if format == nil {
+		return nil
+	}
+	cloned := *format
+	cloned.Schema = append([]byte(nil), format.Schema...)
+	return &cloned
 }
 
 // Validate checks whether a snapshot can be safely rehydrated by this

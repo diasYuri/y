@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -67,5 +68,25 @@ func TestCountTokensEstimateFallback(t *testing.T) {
 	}
 	if got <= 0 {
 		t.Fatalf("CountTokens = %d, want > 0", got)
+	}
+}
+
+func TestBuildSDKRequestStructuredOutput(t *testing.T) {
+	_, config, err := buildSDKRequest(providers.StreamRequest{
+		Model: ai.Model{ID: "gemini-test"},
+		Options: providers.StreamOptions{ResponseFormat: &ai.ResponseFormat{
+			Type:   ai.ResponseFormatJSONSchema,
+			Name:   "answer",
+			Schema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+		}},
+	}, New().httpOptions(providers.StreamOptions{}, ai.Model{}))
+	if err != nil {
+		t.Fatalf("buildSDKRequest: %v", err)
+	}
+	if config.ResponseMIMEType != "application/json" {
+		t.Fatalf("ResponseMIMEType = %q, want application/json", config.ResponseMIMEType)
+	}
+	if config.ResponseJsonSchema == nil {
+		t.Fatal("ResponseJsonSchema is nil")
 	}
 }

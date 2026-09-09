@@ -18,6 +18,7 @@ func cloneMessage(message ai.Message) ai.Message {
 		message.SchemaVersion = ai.CurrentSchemaVersion
 	}
 	cloned := message
+	cloned.StructuredOutput = append([]byte(nil), message.StructuredOutput...)
 	cloned.ProviderMetadata = append([]byte(nil), message.ProviderMetadata...)
 	cloned.Details = append([]byte(nil), message.Details...)
 	if message.Error != nil {

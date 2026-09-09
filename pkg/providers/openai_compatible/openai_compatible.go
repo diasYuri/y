@@ -170,6 +170,9 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if err := providers.ValidateStructuredOutputRequest(req, providerID); err != nil {
+		return nil, err
+	}
 
 	apiKey := p.resolveAPIKey(req.Options.APIKey)
 	if apiKey == "" && !p.allowEmptyKey() {
@@ -303,19 +306,31 @@ func (p *Provider) chatURL(model ai.Model) string {
 }
 
 type chatRequest struct {
-	Model            string         `json:"model"`
-	Messages         []messageParam `json:"messages"`
-	Stream           bool           `json:"stream"`
-	StreamOptions    *streamOpts    `json:"stream_options,omitempty"`
-	MaxTokens        int64          `json:"max_tokens,omitempty"`
-	MaxCompletionTok int64          `json:"max_completion_tokens,omitempty"`
-	Temperature      *float64       `json:"temperature,omitempty"`
-	Tools            []toolParam    `json:"tools,omitempty"`
-	ReasoningEffort  string         `json:"reasoning_effort,omitempty"`
+	Model            string          `json:"model"`
+	Messages         []messageParam  `json:"messages"`
+	Stream           bool            `json:"stream"`
+	StreamOptions    *streamOpts     `json:"stream_options,omitempty"`
+	ResponseFormat   *responseFormat `json:"response_format,omitempty"`
+	MaxTokens        int64           `json:"max_tokens,omitempty"`
+	MaxCompletionTok int64           `json:"max_completion_tokens,omitempty"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	Tools            []toolParam     `json:"tools,omitempty"`
+	ReasoningEffort  string          `json:"reasoning_effort,omitempty"`
 }
 
 type streamOpts struct {
 	IncludeUsage bool `json:"include_usage"`
+}
+
+type responseFormat struct {
+	Type       string              `json:"type"`
+	JSONSchema *responseJSONSchema `json:"json_schema,omitempty"`
+}
+
+type responseJSONSchema struct {
+	Name   string         `json:"name"`
+	Schema map[string]any `json:"schema"`
+	Strict bool           `json:"strict,omitempty"`
 }
 
 type messageParam struct {
@@ -370,6 +385,26 @@ func buildRequest(req providers.StreamRequest) (chatRequest, error) {
 		Stream:        true,
 		StreamOptions: &streamOpts{IncludeUsage: true},
 		Temperature:   req.Options.Temperature,
+	}
+	if format := req.Options.ResponseFormat; format != nil {
+		switch format.Type {
+		case ai.ResponseFormatJSONObject:
+			out.ResponseFormat = &responseFormat{Type: "json_object"}
+		case ai.ResponseFormatJSONSchema:
+			schema, err := format.SchemaMap()
+			if err != nil {
+				return chatRequest{}, err
+			}
+			out.ResponseFormat = &responseFormat{
+				Type: "json_schema",
+				JSONSchema: &responseJSONSchema{
+					Name: format.Name, Schema: schema, Strict: format.Strict,
+				},
+			}
+		case ai.ResponseFormatText:
+		default:
+			return chatRequest{}, fmt.Errorf("unsupported OpenAI-compatible response format %q", format.Type)
+		}
 	}
 	if req.Options.MaxTokens > 0 {
 		out.MaxTokens = req.Options.MaxTokens

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
@@ -143,6 +144,11 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 			if stopReason == "" {
 				stopReason = ai.StopReasonStop
 			}
+			if err := applyStructuredOutput(&message, request, provider.ID()); err != nil {
+				err = a.invokeOnError(ctx, ErrorPhaseRequest, err)
+				err = a.invokeAfterRequestHooks(ctx, runtimeHooks, afterRequest, request, message, hooked.Usage, err)
+				return ai.Message{}, hooked.Usage, stopReason, err
+			}
 			if usageObserver != nil {
 				usageObserver(UsageReported, hooked.Usage)
 			}
@@ -153,6 +159,19 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 			a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(turn, model, ""), Usage: hooked.Usage, Cost: hooked.Usage.Cost.Total, Latency: time.Since(requestStartedAt)})
 			return message, hooked.Usage, stopReason, nil
 		}
+	}
+
+	providerCaps := providers.Capabilities{}
+	if capable, ok := provider.(interface {
+		Capabilities(string) providers.Capabilities
+	}); ok {
+		providerCaps = capable.Capabilities(model.ID)
+	}
+	if err := providers.ValidateStructuredOutputRequest(request, provider.ID(), providerCaps); err != nil {
+		requestSpan.RecordError(err)
+		err = a.invokeOnError(ctx, ErrorPhaseRequest, err)
+		err = a.invokeAfterRequestHooks(ctx, runtimeHooks, afterRequest, request, ai.Message{}, ai.Usage{}, err)
+		return ai.Message{}, ai.Usage{}, ai.StopReasonStop, err
 	}
 
 	a.setState(StateRequestingModel)
@@ -237,6 +256,14 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 	message.ResponseID = responseID
 	message.ProviderMetadata = providerMetadata
 	message.Details = responseDetails
+	if err := applyStructuredOutput(&message, request, provider.ID()); err != nil {
+		requestSpan.RecordError(err)
+		hookErr := a.invokeAfterRequestHooks(ctx, runtimeHooks, afterRequest, request, message, usage, err)
+		if hookErr != nil {
+			err = hookErr
+		}
+		return ai.Message{}, usage, stopReason, err
+	}
 
 	origin := UsageReported
 	if !usageReported || usage.OutputTokens == 0 {
@@ -266,6 +293,31 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 	a.recordAccounting(measurement)
 
 	return message, usage, stopReason, nil
+}
+
+func applyStructuredOutput(message *ai.Message, request providers.StreamRequest, providerID string) error {
+	format := request.Options.ResponseFormat
+	if format == nil || format.Type == ai.ResponseFormatText {
+		return nil
+	}
+	var text strings.Builder
+	for _, block := range message.Content {
+		if block.Type != ai.ContentText {
+			continue
+		}
+		text.WriteString(block.Text)
+	}
+	raw := json.RawMessage(text.String())
+	if err := ai.ValidateStructuredOutput(raw, *format); err != nil {
+		return &ai.StructuredOutputError{
+			Provider: providerID,
+			Format:   *format,
+			Output:   append(json.RawMessage(nil), raw...),
+			Err:      err,
+		}
+	}
+	message.StructuredOutput = append(json.RawMessage(nil), raw...)
+	return nil
 }
 
 func (a *Agent) invokeAfterRequestHooks(ctx context.Context, hooks []RuntimeHooks, configured AfterRequestHook, request providers.StreamRequest, message ai.Message, usage ai.Usage, requestErr error) error {

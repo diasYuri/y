@@ -173,6 +173,7 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 					Input:         []ai.InputKind{ai.InputText},
 					ContextWindow: model.MaxInputTokens,
 					MaxTokens:     model.MaxTokens,
+					Capabilities:  ai.ModelCapabilities{StructuredOutput: true},
 				})
 				if model.Capabilities.ImageInput.Supported {
 					models[len(models)-1].Input = append(models[len(models)-1].Input, ai.InputImage)
@@ -187,6 +188,7 @@ func (p *Provider) Models(ctx context.Context) ([]ai.Model, error) {
 	out := CuratedModels()
 	for i := range out {
 		out[i].BaseURL = p.baseURL
+		out[i].Capabilities.StructuredOutput = true
 	}
 	return out, nil
 }
@@ -209,6 +211,9 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		}()
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := providers.ValidateStructuredOutputRequest(req, providerID, p.Capabilities(req.Model.ID)); err != nil {
 		return nil, err
 	}
 
@@ -309,12 +314,13 @@ func (p *Provider) Capabilities(modelID string) providers.Capabilities {
 		return providers.Capabilities{}
 	}
 	return providers.Capabilities{
-		Vision:      true,
-		Tools:       true,
-		Reasoning:   true,
-		PromptCache: true,
-		JSONMode:    true,
-		Streaming:   true,
+		Vision:           true,
+		Tools:            true,
+		Reasoning:        true,
+		PromptCache:      true,
+		JSONMode:         true,
+		StructuredOutput: true,
+		Streaming:        true,
 	}
 }
 
@@ -461,6 +467,19 @@ func buildSDKMessageRequest(req providers.StreamRequest) (anthropicsdk.MessageNe
 	}
 	if req.Options.SessionID != "" {
 		out.Metadata.UserID = param.NewOpt(req.Options.SessionID)
+	}
+	if format := req.Options.ResponseFormat; format != nil && format.Type != ai.ResponseFormatText {
+		var schema map[string]any
+		if format.Type == ai.ResponseFormatJSONObject {
+			schema = map[string]any{"type": "object"}
+		} else {
+			var err error
+			schema, err = format.SchemaMap()
+			if err != nil {
+				return anthropicsdk.MessageNewParams{}, err
+			}
+		}
+		out.OutputConfig.Format = anthropicsdk.JSONOutputFormatParam{Schema: schema}
 	}
 	for _, tool := range req.Context.Tools {
 		out.Tools = append(out.Tools, anthropicsdk.ToolUnionParam{OfTool: &anthropicsdk.ToolParam{

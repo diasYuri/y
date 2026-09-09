@@ -15,6 +15,26 @@ import (
 // ErrStreamClosed is returned by EventStream.Next after Close has been called.
 var ErrStreamClosed = errors.New("provider event stream closed")
 
+// ErrStructuredOutputUnsupported indicates that the selected model does not
+// advertise support for the requested structured-output contract.
+var ErrStructuredOutputUnsupported = errors.New("structured output unsupported")
+
+// StructuredOutputUnsupportedError describes a capability-gate failure before
+// a provider request is sent.
+type StructuredOutputUnsupportedError struct {
+	Provider string
+	Model    string
+}
+
+func (e *StructuredOutputUnsupportedError) Error() string {
+	if e == nil {
+		return ErrStructuredOutputUnsupported.Error()
+	}
+	return fmt.Sprintf("%s: model %q does not support structured output", e.Provider, e.Model)
+}
+
+func (e *StructuredOutputUnsupportedError) Unwrap() error { return ErrStructuredOutputUnsupported }
+
 // Provider streams normalized AI events for one provider family.
 //
 // Lifecycle:
@@ -95,12 +115,36 @@ type StreamOptions struct {
 	MaxRetryDelay   time.Duration              `json:"max_retry_delay,omitempty"`
 	Reasoning       ai.ThinkingLevel           `json:"reasoning,omitempty"`
 	ThinkingBudgets map[ai.ThinkingLevel]int64 `json:"thinking_budgets,omitempty"`
+	ResponseFormat  *ai.ResponseFormat         `json:"response_format,omitempty"`
 	// Extras holds typed provider-specific extension keys. Prefer this over
 	// Metadata. Use WithProviderExtra to construct.
 	Extras ProviderExtras `json:"extras,omitempty"`
 	// Deprecated: Metadata is retained for backwards compatibility with callers
 	// that pass a raw JSON blob. New code should use Extras / WithProviderExtra.
 	Metadata json.RawMessage `json:"metadata,omitempty"`
+}
+
+// ValidateStructuredOutputRequest validates the normalized output contract
+// and enforces the model-declared capability before provider-specific mapping.
+// Provider capabilities may be supplied by adapters that can determine support
+// directly from a model ID; compatible endpoints intentionally omit them and
+// must opt in through req.Model.Capabilities.
+func ValidateStructuredOutputRequest(req StreamRequest, providerID string, providerCaps ...Capabilities) error {
+	format := req.Options.ResponseFormat
+	if format == nil || format.Type == ai.ResponseFormatText {
+		return nil
+	}
+	if err := ai.ValidateResponseFormat(*format); err != nil {
+		return err
+	}
+	supported := req.Model.Capabilities.StructuredOutput
+	for _, caps := range providerCaps {
+		supported = supported || caps.StructuredOutput
+	}
+	if !supported {
+		return &StructuredOutputUnsupportedError{Provider: providerID, Model: req.Model.ID}
+	}
+	return nil
 }
 
 // ApplyRequestMetadata adds transport-neutral correlation headers when the
@@ -171,6 +215,9 @@ type Capabilities struct {
 	PromptCache bool
 	// JSONMode is true when the model supports forced-JSON output.
 	JSONMode bool
+	// StructuredOutput is true when the model supports provider-enforced JSON
+	// schema output.
+	StructuredOutput bool
 	// Streaming is true when the model supports SSE streaming. All currently
 	// supported providers stream.
 	Streaming bool

@@ -107,6 +107,11 @@ func overlayStreamOptions(base, top providers.StreamOptions) providers.StreamOpt
 			base.ThinkingBudgets[k] = v
 		}
 	}
+	if top.ResponseFormat != nil {
+		format := *top.ResponseFormat
+		format.Schema = append([]byte(nil), top.ResponseFormat.Schema...)
+		base.ResponseFormat = &format
+	}
 	if len(top.Metadata) > 0 {
 		base.Metadata = append([]byte(nil), top.Metadata...)
 	}

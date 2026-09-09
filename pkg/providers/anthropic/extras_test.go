@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -224,5 +225,26 @@ func TestCountTokensFallsBackToEstimate(t *testing.T) {
 	}
 	if got <= 0 {
 		t.Fatalf("CountTokens = %d, want > 0", got)
+	}
+}
+
+func TestBuildSDKMessageRequestStructuredOutput(t *testing.T) {
+	payload, err := buildSDKMessageRequest(providers.StreamRequest{
+		Model: ai.Model{ID: "claude-test"},
+		Options: providers.StreamOptions{ResponseFormat: &ai.ResponseFormat{
+			Type:   ai.ResponseFormatJSONSchema,
+			Name:   "answer",
+			Schema: json.RawMessage(`{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("buildSDKMessageRequest: %v", err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	if !strings.Contains(string(raw), `"output_config":{"format":{"schema"`) || !strings.Contains(string(raw), `"type":"json_schema"`) {
+		t.Fatalf("payload = %s, want output_config.format JSON schema", raw)
 	}
 }

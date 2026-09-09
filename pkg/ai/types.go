@@ -70,12 +70,13 @@ type Model struct {
 // Keeping this type in ai avoids coupling model selection to a concrete
 // provider package.
 type ModelCapabilities struct {
-	Vision      bool `json:"vision,omitempty"`
-	Tools       bool `json:"tools,omitempty"`
-	Reasoning   bool `json:"reasoning,omitempty"`
-	PromptCache bool `json:"prompt_cache,omitempty"`
-	JSONMode    bool `json:"json_mode,omitempty"`
-	Streaming   bool `json:"streaming,omitempty"`
+	Vision           bool `json:"vision,omitempty"`
+	Tools            bool `json:"tools,omitempty"`
+	Reasoning        bool `json:"reasoning,omitempty"`
+	PromptCache      bool `json:"prompt_cache,omitempty"`
+	JSONMode         bool `json:"json_mode,omitempty"`
+	StructuredOutput bool `json:"structured_output,omitempty"`
+	Streaming        bool `json:"streaming,omitempty"`
 }
 
 // InputKind identifies model input modalities.
@@ -119,6 +120,7 @@ type Message struct {
 	ModelID          string          `json:"model_id,omitempty"`
 	StopReason       StopReason      `json:"stop_reason,omitempty"`
 	Usage            Usage           `json:"usage,omitempty"`
+	StructuredOutput json.RawMessage `json:"structured_output,omitempty"`
 	ProviderMetadata json.RawMessage `json:"provider_metadata,omitempty"`
 	Details          json.RawMessage `json:"details,omitempty"`
 	Error            *ProviderError  `json:"error,omitempty"`
