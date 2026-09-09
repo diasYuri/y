@@ -11,6 +11,9 @@ import (
 
 type assistantBuilder struct {
 	text      bytes.Buffer
+	thinking  bytes.Buffer
+	signature string
+	content   []ai.ContentBlock
 	toolCalls map[int]*pendingToolCall
 }
 
@@ -31,6 +34,24 @@ func (b *assistantBuilder) addText(text string) {
 	}
 }
 
+func (b *assistantBuilder) addThinking(thinking, signature string) {
+	if thinking != "" {
+		b.thinking.WriteString(thinking)
+	}
+	if signature != "" {
+		b.signature = signature
+	}
+}
+
+func (b *assistantBuilder) addImage(event ai.ImageEvent) {
+	b.content = append(b.content, ai.ContentBlock{
+		Type:             ai.ContentImage,
+		ImageData:        append([]byte(nil), event.Data...),
+		ImageMIMEType:    event.MIMEType,
+		ProviderMetadata: append([]byte(nil), event.ProviderMetadata...),
+	})
+}
+
 func (b *assistantBuilder) addToolCall(event ai.ToolCallEvent) {
 	call := b.toolCalls[event.ContentIndex]
 	if call == nil {
@@ -42,6 +63,12 @@ func (b *assistantBuilder) addToolCall(event ai.ToolCallEvent) {
 	}
 	if event.ToolCall.Name != "" {
 		call.call.Name = event.ToolCall.Name
+	}
+	if event.ToolCall.ThoughtSignature != "" {
+		call.call.ThoughtSignature = event.ToolCall.ThoughtSignature
+	}
+	if len(event.ToolCall.Details) > 0 {
+		call.call.Details = append([]byte(nil), event.ToolCall.Details...)
 	}
 	if len(event.ToolCall.Arguments) > 0 {
 		call.call.Arguments = append([]byte(nil), event.ToolCall.Arguments...)
@@ -73,7 +100,11 @@ func (b *assistantBuilder) build() (ai.Message, error) {
 		toolCalls = append(toolCalls, call)
 	}
 
-	content := make([]ai.ContentBlock, 0, 1)
+	content := make([]ai.ContentBlock, 0, 2+len(b.content))
+	content = append(content, b.content...)
+	if thinking := b.thinking.String(); thinking != "" || b.signature != "" {
+		content = append(content, ai.ContentBlock{Type: ai.ContentThinking, Thinking: thinking, Signature: b.signature})
+	}
 	if text := b.text.String(); text != "" {
 		content = append(content, ai.ContentBlock{Type: ai.ContentText, Text: text})
 	}

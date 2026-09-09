@@ -83,6 +83,16 @@ const (
 	KindInit     EnvelopeKind = "init"
 	KindToolCall EnvelopeKind = "tool_call"
 	KindShutdown EnvelopeKind = "shutdown"
+	// KindLifecycle delivers runtime lifecycle notifications such as
+	// before_turn, after_turn and session_settled. Guests that do not
+	// recognise it may safely return an empty successful response, preserving
+	// the v1 tool-only ABI.
+	KindLifecycle EnvelopeKind = "lifecycle"
+	// KindRuntimeEvent delivers a versioned event envelope to an extension.
+	// It keeps extension observability independent of a TUI or transport.
+	KindRuntimeEvent EnvelopeKind = "runtime_event"
+	// KindHook invokes a named runtime extension hook with a typed payload.
+	KindHook EnvelopeKind = "hook"
 
 	// Host call kinds, used by pi_host_call:
 	KindHostLog     EnvelopeKind = "log"
@@ -156,6 +166,35 @@ type ToolCallRequest struct {
 // ToolCallResponse is the payload returned by the guest on a tool call.
 type ToolCallResponse struct {
 	Content []ContentBlock `json:"content,omitempty"`
+}
+
+// LifecycleRequest is sent in a KindLifecycle envelope. Payload is retained
+// as JSON so new lifecycle phases can be introduced without changing the
+// binary ABI.
+type LifecycleRequest struct {
+	Phase     string          `json:"phase"`
+	RunID     string          `json:"run_id,omitempty"`
+	SessionID string          `json:"session_id,omitempty"`
+	TurnID    string          `json:"turn_id,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+}
+
+// RuntimeEventRequest is sent in a KindRuntimeEvent envelope. SchemaVersion
+// lets guests reject unknown event contracts without inspecting host types.
+type RuntimeEventRequest struct {
+	SchemaVersion uint32          `json:"schema_version"`
+	RunID         string          `json:"run_id,omitempty"`
+	Sequence      uint64          `json:"sequence,omitempty"`
+	Type          string          `json:"type"`
+	Payload       json.RawMessage `json:"payload,omitempty"`
+}
+
+// HookRequest is sent in a KindHook envelope for custom hook registration,
+// argument mutation, result overrides and runtime-provided resources.
+type HookRequest struct {
+	Name    string          `json:"name"`
+	Phase   string          `json:"phase,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // ContentBlock is a typed piece of tool output. Only "text" is required for

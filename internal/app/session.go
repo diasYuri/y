@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/yuri/y/internal/storage"
+	"github.com/yuri/y/pkg/session"
 )
 
 func runSession(stdout, stderr io.Writer, args []string) int {
@@ -44,7 +45,7 @@ func runSessionList(stdout, stderr io.Writer, args []string) int {
 		return 1
 	}
 
-	store := storage.NewSessionStore(storage.DefaultAgentDir())
+	var store session.Store = storage.NewSessionStore(storage.DefaultAgentDir())
 	summaries, err := store.List(context.Background(), cwd)
 	if err != nil {
 		fmt.Fprintf(stderr, "y session list: %v\n", err)
@@ -93,7 +94,7 @@ func runSessionShow(stdout, stderr io.Writer, args []string) int {
 		return 1
 	}
 
-	store := storage.NewSessionStore(storage.DefaultAgentDir())
+	var store session.Store = storage.NewSessionStore(storage.DefaultAgentDir())
 	target := ""
 	if len(args) == 1 {
 		target = args[0]

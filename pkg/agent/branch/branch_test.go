@@ -149,6 +149,73 @@ func TestBranchManagerList(t *testing.T) {
 	}
 }
 
+func TestBranchManagerSessionSemantics(t *testing.T) {
+	bm := NewBranchManager()
+	main := bm.Main()
+	if err := bm.AppendMessages(main, ai.Message{Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "one"}}}); err != nil {
+		t.Fatal(err)
+	}
+	child, err := bm.Fork(main, "experiment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bm.SetName(child, "exp-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := bm.SetLabel(child, "Experiment A"); err != nil {
+		t.Fatal(err)
+	}
+	entries := bm.GetTree()
+	var childEntry Entry
+	for _, entry := range entries {
+		if entry.ID == child {
+			childEntry = entry
+		}
+	}
+	if len(entries) != 2 || childEntry.Name != "exp-a" || childEntry.Label != "Experiment A" {
+		t.Fatalf("GetTree() = %#v", entries)
+	}
+	messages, err := bm.GetMessagesAt(child, 0)
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("GetMessagesAt() = %#v, %v", messages, err)
+	}
+	messages[0].Content[0].Text = "changed"
+	resumed, err := bm.ResumeFrom(child)
+	if err != nil || resumed[0].Content[0].Text != "one" {
+		t.Fatalf("ResumeFrom() = %#v, %v", resumed, err)
+	}
+	clone, err := bm.Clone(child, "standalone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := bm.Get(clone)
+	if !ok || entry.Parent != "" || entry.Name != "standalone" {
+		t.Fatalf("Clone() = %#v, %v", entry, ok)
+	}
+}
+
+func TestBranchManagerDoesNotReuseDeletedID(t *testing.T) {
+	bm := NewBranchManager()
+	first, err := bm.Fork(bm.Main(), "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := bm.Fork(bm.Main(), "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bm.Delete(first); err != nil {
+		t.Fatal(err)
+	}
+	third, err := bm.Fork(bm.Main(), "third")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third == second {
+		t.Fatalf("reused live branch ID %q", third)
+	}
+}
+
 // TestBranchManagerMergeAfterParentGrows exercises the case the previous
 // length-based heuristic got wrong: a child branch is forked, then both
 // parent and child append messages independently. Merge must replay only the

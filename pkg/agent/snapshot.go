@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	ycontext "github.com/yuri/y/pkg/context"
+	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/providers"
 )
 
@@ -36,6 +38,31 @@ import (
 // SessionID) are intentionally dropped — callers must reapply them via
 // options when restoring.
 type AgentSnapshot struct {
+	// SchemaVersion identifies the serialisation contract. Zero is accepted as
+	// version one for backwards compatibility with pre-versioned snapshots.
+	SchemaVersion int `json:"schema_version,omitempty"`
+
+	// Version is the agent-local checkpoint version. Distributed stores add
+	// their own optimistic version around this value.
+	Version uint64 `json:"version,omitempty"`
+
+	// RunID identifies the execution that produced this state.
+	RunID string `json:"run_id,omitempty"`
+
+	// RunNonce identifies the logical execution generation used for tool
+	// idempotency. It is retained while a run is recoverable and cleared after
+	// a terminal run settles.
+	RunNonce string `json:"run_nonce,omitempty"`
+
+	// ContextRequest identifies the context scopes used by the run.
+	ContextRequest ycontext.Request `json:"context_request,omitempty"`
+
+	// PolicyIdentity is the non-secret authorization identity used by tools.
+	PolicyIdentity         policy.Identity `json:"policy_identity,omitempty"`
+	PolicyVersion          string          `json:"policy_version,omitempty"`
+	AuthorizationExpiresAt time.Time       `json:"authorization_expires_at,omitempty"`
+	IdempotencyKey         string          `json:"idempotency_key,omitempty"`
+
 	// Transcript is a deep copy of the agent's conversation transcript.
 	Transcript []ai.Message `json:"transcript,omitempty"`
 
@@ -69,6 +96,10 @@ type AgentSnapshot struct {
 	// PendingSteering contains messages queued for steering that have
 	// not yet been injected.
 	PendingSteering []ai.Message `json:"pending_steering,omitempty"`
+
+	// PendingApproval is the durable tool continuation awaiting a remote
+	// approval resolution.
+	PendingApproval *PendingApproval `json:"pending_approval,omitempty"`
 
 	// RecoverableErrMsg, when non-empty, indicates the agent failed with a
 	// recoverable error whose message is preserved here. Restore uses this
@@ -152,6 +183,52 @@ func streamOptionsFromSnapshot(s StreamOptionsSnapshot) providers.StreamOptions 
 	return out
 }
 
+// Validate checks whether a snapshot can be safely rehydrated by this
+// version of the SDK. Version zero is the legacy, pre-versioned format.
+func (s AgentSnapshot) Validate() error {
+	if s.SchemaVersion < 0 || s.SchemaVersion > CurrentSnapshotSchemaVersion {
+		return errors.New("agent: unsupported snapshot schema version")
+	}
+	if s.PendingApproval != nil && s.PendingApproval.ToolCall.Name == "" {
+		return errors.New("agent: pending approval has no tool name")
+	}
+	if s.MaxTurns < 0 {
+		return errors.New("agent: snapshot contains a negative MaxTurns")
+	}
+	if s.ToolConcurrency < 0 {
+		return errors.New("agent: snapshot contains a negative ToolConcurrency")
+	}
+	if s.MaxRetries < 0 {
+		return errors.New("agent: snapshot contains a negative MaxRetries")
+	}
+	if s.ToolTimeout < 0 {
+		return errors.New("agent: snapshot contains a negative ToolTimeout")
+	}
+	if s.MaxRetryDelay < 0 {
+		return errors.New("agent: snapshot contains a negative MaxRetryDelay")
+	}
+	return nil
+}
+
+// Migrate upgrades legacy agent snapshots in memory. Version zero is the
+// pre-versioned format; newer unknown versions are rejected explicitly.
+func (s AgentSnapshot) Migrate() (AgentSnapshot, error) {
+	if s.SchemaVersion < 0 || s.SchemaVersion > CurrentSnapshotSchemaVersion {
+		return AgentSnapshot{}, errors.New("agent: unsupported snapshot schema version")
+	}
+	if s.SchemaVersion == 0 {
+		s.SchemaVersion = CurrentSnapshotSchemaVersion
+	}
+	for i := range s.Transcript {
+		message, err := ai.MigrateMessage(s.Transcript[i])
+		if err != nil {
+			return AgentSnapshot{}, err
+		}
+		s.Transcript[i] = message
+	}
+	return s, nil
+}
+
 // Snapshot returns a deep copy of the agent's serialisable state. Snapshot
 // is safe to call from any goroutine, including while the agent is running;
 // the returned snapshot reflects the moment Snapshot was called.
@@ -171,6 +248,14 @@ func (a *Agent) Snapshot() AgentSnapshot {
 	maxRetryDelay := a.maxRetryDelay
 	compactionEnabled := a.compactionEnabled
 	streamDefaults := a.streamDefaults
+	contextRequest := a.contextRequest
+	policyIdentity := a.policyIdentity
+	policyVersion := a.policyVersion
+	authorizationExpiresAt := a.authorizationExpiresAt
+	idempotencyKey := a.idempotencyKey
+	runID := a.runID
+	runNonce := a.runNonce
+	transcriptVersion := a.transcriptVersion
 
 	var thinking map[ai.ThinkingLevel]int64
 	if len(a.thinkingBudgets) > 0 {
@@ -184,6 +269,7 @@ func (a *Agent) Snapshot() AgentSnapshot {
 	if a.recoverableErr != nil {
 		recoverableMsg = a.recoverableErr.Error()
 	}
+	pendingApproval := clonePendingApproval(a.pendingApproval)
 	a.mu.Unlock()
 
 	a.followUpMu.Lock()
@@ -195,24 +281,34 @@ func (a *Agent) Snapshot() AgentSnapshot {
 	a.steeringMu.Unlock()
 
 	return AgentSnapshot{
-		Transcript:        transcript,
-		Model:             model,
-		SystemPrompt:      systemPrompt,
-		WorkspaceRoot:     workspaceRoot,
-		MaxTurns:          maxTurns,
-		SessionID:         sessionID,
-		ThinkingBudgets:   thinking,
-		State:             state,
-		FollowUpQueue:     followUp,
-		PendingSteering:   steering,
-		RecoverableErrMsg: recoverableMsg,
-		ToolMode:          toolMode,
-		ToolConcurrency:   toolConcurrency,
-		ToolTimeout:       toolTimeout,
-		MaxRetries:        maxRetries,
-		MaxRetryDelay:     maxRetryDelay,
-		CompactionEnabled: compactionEnabled,
-		StreamDefaults:    streamOptionsToSnapshot(streamDefaults),
+		SchemaVersion:          CurrentSnapshotSchemaVersion,
+		Version:                transcriptVersion,
+		RunID:                  runID,
+		RunNonce:               runNonce,
+		ContextRequest:         contextRequest,
+		PolicyIdentity:         clonePolicyIdentity(policyIdentity),
+		PolicyVersion:          policyVersion,
+		AuthorizationExpiresAt: authorizationExpiresAt,
+		IdempotencyKey:         idempotencyKey,
+		Transcript:             transcript,
+		Model:                  sanitizeModel(model),
+		SystemPrompt:           systemPrompt,
+		WorkspaceRoot:          workspaceRoot,
+		MaxTurns:               maxTurns,
+		SessionID:              sessionID,
+		ThinkingBudgets:        thinking,
+		State:                  state,
+		FollowUpQueue:          followUp,
+		PendingSteering:        steering,
+		PendingApproval:        pendingApproval,
+		RecoverableErrMsg:      recoverableMsg,
+		ToolMode:               toolMode,
+		ToolConcurrency:        toolConcurrency,
+		ToolTimeout:            toolTimeout,
+		MaxRetries:             maxRetries,
+		MaxRetryDelay:          maxRetryDelay,
+		CompactionEnabled:      compactionEnabled,
+		StreamDefaults:         streamOptionsToSnapshot(streamDefaults),
 	}
 }
 
@@ -227,13 +323,29 @@ func (a *Agent) Snapshot() AgentSnapshot {
 // [AgentSnapshot.RecoverableErrMsg]: the original concrete error type is
 // lost, but [Agent.Continue] and [Agent.Recover] can still resume.
 func (a *Agent) Restore(snap AgentSnapshot) error {
-	if snap.MaxTurns < 0 {
-		return errors.New("agent: snapshot MaxTurns must be non-negative")
+	var err error
+	snap, err = snap.Migrate()
+	if err != nil {
+		return err
+	}
+	if err := snap.Validate(); err != nil {
+		return err
 	}
 
 	a.mu.Lock()
 	a.transcript = cloneMessages(snap.Transcript)
-	a.model = snap.Model
+	a.transcriptVersion = snap.Version
+	if a.transcriptVersion == 0 && len(a.transcript) > 0 {
+		a.transcriptVersion = 1
+	}
+	a.runID = snap.RunID
+	a.runNonce = snap.RunNonce
+	a.contextRequest = snap.ContextRequest
+	a.policyIdentity = clonePolicyIdentity(snap.PolicyIdentity)
+	a.policyVersion = snap.PolicyVersion
+	a.authorizationExpiresAt = snap.AuthorizationExpiresAt
+	a.idempotencyKey = snap.IdempotencyKey
+	a.model = sanitizeModel(snap.Model)
 	a.systemPrompt = snap.SystemPrompt
 	a.workspaceRoot = snap.WorkspaceRoot
 	if snap.MaxTurns > 0 {
@@ -267,6 +379,8 @@ func (a *Agent) Restore(snap AgentSnapshot) error {
 	a.maxRetryDelay = snap.MaxRetryDelay
 	a.compactionEnabled = snap.CompactionEnabled
 	a.streamDefaults = streamOptionsFromSnapshot(snap.StreamDefaults)
+	a.pendingApproval = clonePendingApproval(snap.PendingApproval)
+	a.approvalResolution = nil
 
 	if snap.RecoverableErrMsg != "" {
 		a.recoverableErr = errors.New("restored: " + snap.RecoverableErrMsg)
@@ -284,6 +398,37 @@ func (a *Agent) Restore(snap AgentSnapshot) error {
 	a.steeringMu.Unlock()
 
 	return nil
+}
+
+func clonePolicyIdentity(identity policy.Identity) policy.Identity {
+	identity.Capabilities = append([]string(nil), identity.Capabilities...)
+	return identity
+}
+
+func cloneApprovalResolution(resolution *policy.ApprovalResolution) *policy.ApprovalResolution {
+	if resolution == nil {
+		return nil
+	}
+	copy := *resolution
+	return &copy
+}
+
+func clonePendingApproval(pending *PendingApproval) *PendingApproval {
+	if pending == nil {
+		return nil
+	}
+	copy := *pending
+	copy.ToolCall.Arguments = append([]byte(nil), pending.ToolCall.Arguments...)
+	return &copy
+}
+
+func sanitizeModel(model ai.Model) ai.Model {
+	model.Headers = nil
+	// Provider metadata can contain opaque authentication material. It is
+	// re-resolved by the provider on the next request instead of being carried
+	// across a worker boundary.
+	model.Metadata = nil
+	return model
 }
 
 // RestoreAgent constructs a new agent and applies snap to it. Any options

@@ -158,6 +158,35 @@ func TestProviderUsesEnvAPIKey(t *testing.T) {
 	defer stream.Close()
 }
 
+func TestBuildRequestRetainsReasoningOnlyAssistantMessage(t *testing.T) {
+	request, err := buildRequest(providers.StreamRequest{
+		Model: ai.Model{ID: "compat-test", Reasoning: true},
+		Context: ai.Context{Messages: []ai.Message{{
+			Role:    ai.RoleAssistant,
+			Content: []ai.ContentBlock{{Type: ai.ContentThinking, Thinking: "private reasoning"}},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("buildRequest: %v", err)
+	}
+	if len(request.Messages) != 1 || request.Messages[0].ReasoningContent != "private reasoning" {
+		t.Fatalf("messages = %#v, want reasoning-only assistant message", request.Messages)
+	}
+}
+
+func TestBuildRequestDisablesThinkingOff(t *testing.T) {
+	request, err := buildRequest(providers.StreamRequest{
+		Model:   ai.Model{ID: "compat-test", Reasoning: true},
+		Options: providers.StreamOptions{Reasoning: ai.ThinkingOff},
+	})
+	if err != nil {
+		t.Fatalf("buildRequest: %v", err)
+	}
+	if request.ReasoningEffort != "" {
+		t.Fatalf("reasoning effort = %q, want disabled", request.ReasoningEffort)
+	}
+}
+
 func TestProviderRequiresAPIKeyUnlessAllowed(t *testing.T) {
 	provider := New(WithEnvLookup(func(string) string { return "" }))
 	_, err := provider.Stream(context.Background(), providers.StreamRequest{

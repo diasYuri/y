@@ -7,7 +7,10 @@ import (
 
 	"github.com/yuri/y/pkg/agent/compaction"
 	"github.com/yuri/y/pkg/ai"
+	ycontext "github.com/yuri/y/pkg/context"
+	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/telemetry"
 )
 
 const defaultMaxTurns = 32
@@ -20,21 +23,30 @@ type Agent struct {
 	// the agent, not to an individual caller.
 	runMu sync.Mutex
 
-	mu                sync.Mutex
-	provider          Provider
-	registry          ToolRegistry
-	model             ai.Model
-	systemPrompt      string
-	workspaceRoot     string
-	maxTurns          int
-	toolMode          ToolExecutionMode
-	onEvent           EventSink
-	transcript        []ai.Message
-	transcriptVersion uint64
-	state             State
-	compactor         *compaction.Compactor
-	compactionEnabled bool
-	compacting        bool
+	mu                     sync.Mutex
+	provider               Provider
+	registry               ToolRegistry
+	model                  ai.Model
+	systemPrompt           string
+	workspaceRoot          string
+	policyIdentity         policy.Identity
+	policyVersion          string
+	authorizationExpiresAt time.Time
+	idempotencyKey         string
+	contextResolver        *ycontext.Resolver
+	contextRequest         ycontext.Request
+	maxTurns               int
+	toolMode               ToolExecutionMode
+	onEvent                EventSink
+	transcript             []ai.Message
+	transcriptVersion      uint64
+	state                  State
+	runID                  string
+	runNonce               string
+	eventSequence          uint64
+	compactor              *compaction.Compactor
+	compactionEnabled      bool
+	compacting             bool
 
 	beforeToolCall  ToolCallHook
 	afterToolCall   ToolCallHook
@@ -67,9 +79,14 @@ type Agent struct {
 	maxRetries    int
 	maxRetryDelay time.Duration
 
-	recoverableErr error
-	logger         Logger
-	usageObserver  UsageObserver
+	recoverableErr     error
+	pendingApproval    *PendingApproval
+	approvalResolution *policy.ApprovalResolution
+	logger             Logger
+	usageObserver      UsageObserver
+	tracer             telemetry.Tracer
+	accounting         *telemetry.Accounting
+	runtimeHooks       []RuntimeHooks
 }
 
 // New creates a new agent with the supplied provider and tool registry.

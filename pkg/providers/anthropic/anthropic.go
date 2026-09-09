@@ -237,7 +237,15 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		_ = upstream.Close()
 		return nil, normalizeAnthropicError(upstream.Err())
 	}
-	return sdkstream.NewWithNormalize(upstream.Next, upstream.Current, upstream.Err, upstream.Close, newAnthropicConsumer(), normalizeAnthropicError), nil
+	closeStream := upstream.Close
+	if cancel != nil {
+		closeStream = func() error {
+			err := upstream.Close()
+			cancel()
+			return err
+		}
+	}
+	return sdkstream.NewWithNormalize(upstream.Next, upstream.Current, upstream.Err, closeStream, newAnthropicConsumer(), normalizeAnthropicError), nil
 }
 
 func (p *Provider) resolveAPIKey(requestKey string) string {
@@ -359,11 +367,23 @@ func (p *Provider) sdkClient(apiKey, baseURL string, opts providers.StreamOption
 }
 
 func (p *Provider) sdkRequestOptions(opts providers.StreamOptions) []option.RequestOption {
-	out := make([]option.RequestOption, 0, len(opts.Headers)+1)
+	out := make([]option.RequestOption, 0, len(opts.Headers)+5)
 	for key, value := range opts.Headers {
 		if strings.TrimSpace(key) != "" && value != "" {
 			out = append(out, option.WithHeader(key, value))
 		}
+	}
+	if opts.RequestID != "" && !providers.HasHeader(opts.Headers, "X-Request-ID") {
+		out = append(out, option.WithHeader("X-Request-ID", opts.RequestID))
+	}
+	if opts.IdempotencyKey != "" && !providers.HasHeader(opts.Headers, "Idempotency-Key") {
+		out = append(out, option.WithHeader("Idempotency-Key", opts.IdempotencyKey))
+	}
+	if opts.RunID != "" && !providers.HasHeader(opts.Headers, "X-Y-Run-ID") {
+		out = append(out, option.WithHeader("X-Y-Run-ID", opts.RunID))
+	}
+	if opts.TurnID != "" && !providers.HasHeader(opts.Headers, "X-Y-Turn-ID") {
+		out = append(out, option.WithHeader("X-Y-Turn-ID", opts.TurnID))
 	}
 	if opts.Timeout > 0 {
 		out = append(out, option.WithRequestTimeout(opts.Timeout))
@@ -396,6 +416,7 @@ func (p *Provider) inspectSDKRequest(ctx context.Context, req providers.StreamRe
 			httpReq.Header.Set(key, value)
 		}
 	}
+	providers.ApplyRequestMetadata(httpReq.Header, req.Options)
 	p.inspector(httpReq)
 }
 
@@ -422,7 +443,7 @@ func buildSDKMessageRequest(req providers.StreamRequest) (anthropicsdk.MessageNe
 	if req.Context.SystemPrompt != "" {
 		out.System = []anthropicsdk.TextBlockParam{{Text: req.Context.SystemPrompt}}
 	}
-	if req.Options.Reasoning != "" && req.Options.Reasoning != ai.ThinkingMinimal {
+	if req.Options.Reasoning != "" && req.Options.Reasoning != ai.ThinkingOff && req.Options.Reasoning != ai.ThinkingMinimal {
 		budget := req.Options.ThinkingBudgets[req.Options.Reasoning]
 		if budget < 1024 {
 			budget = 1024
@@ -575,10 +596,13 @@ func newAnthropicConsumer() func(anthropicsdk.MessageStreamEventUnion) []ai.Even
 			case "text_delta":
 				return []ai.Event{ai.TextDelta{ContentIndex: int(event.Index), Text: event.Delta.Text}}
 			case "thinking_delta":
-				return []ai.Event{ai.TextDelta{ContentIndex: int(event.Index), Text: event.Delta.Thinking}}
+				return []ai.Event{ai.ThinkingDelta{ContentIndex: int(event.Index), Thinking: event.Delta.Thinking}}
 			case "signature_delta":
 				if block != nil {
 					block.signature += event.Delta.Signature
+				}
+				if event.Delta.Signature != "" {
+					return []ai.Event{ai.ThinkingDelta{ContentIndex: int(event.Index), Signature: event.Delta.Signature}}
 				}
 			case "input_json_delta":
 				if block == nil {

@@ -33,3 +33,4 @@
 .baseline-agent/
 .y/
 examples/coding-agent/workspace/*
+.private

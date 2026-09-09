@@ -13,6 +13,19 @@ import (
 	"github.com/yuri/y/pkg/tools"
 )
 
+func TestSnapshotMigrationUpgradesLegacyMessages(t *testing.T) {
+	snapshot, err := (AgentSnapshot{Transcript: []ai.Message{{Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "legacy"}}}}}).Migrate()
+	if err != nil || snapshot.SchemaVersion != CurrentSnapshotSchemaVersion || snapshot.Transcript[0].SchemaVersion != ai.CurrentSchemaVersion {
+		t.Fatalf("migrated snapshot = %#v, err %v", snapshot, err)
+	}
+	if _, err := (AgentSnapshot{SchemaVersion: CurrentSnapshotSchemaVersion + 1}).Migrate(); err == nil {
+		t.Fatal("expected unsupported snapshot version")
+	}
+	if _, err := ai.MigrateMessage(ai.Message{SchemaVersion: ai.CurrentSchemaVersion + 1}); err == nil {
+		t.Fatal("expected unsupported message version")
+	}
+}
+
 // TestSnapshotPreservesRecoverableErr drives the agent into StateFailed with a
 // recoverable error, snapshots through JSON, restores onto a fresh agent, and
 // confirms Continue() routes through Recover() (not RunMessages directly).

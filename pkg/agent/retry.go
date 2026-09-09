@@ -3,11 +3,14 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
+	"github.com/yuri/y/pkg/agent/compaction"
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/telemetry"
 )
 
 // ErrRetry is a sentinel returned by [ErrorHook] to request that the failing
@@ -29,6 +32,7 @@ func (a *Agent) requestAssistantWithRetry(ctx context.Context, model ai.Model, t
 	}
 
 	delay := 100 * time.Millisecond
+	overflowCompacted := false
 	for attempt := 0; ; attempt++ {
 		msg, usage, stop, err := a.requestAssistant(ctx, model, turn)
 		if err == nil {
@@ -37,6 +41,17 @@ func (a *Agent) requestAssistantWithRetry(ctx context.Context, model ai.Model, t
 
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return msg, usage, stop, err
+		}
+		var overflow *providers.ContextOverflowError
+		if errors.As(err, &overflow) && !overflowCompacted {
+			compacted, compactErr := a.compact(ctx, compaction.ReasonOverflow, true)
+			if compactErr != nil {
+				return msg, usage, stop, fmt.Errorf("compact after provider overflow: %w", compactErr)
+			}
+			if compacted {
+				overflowCompacted = true
+				continue
+			}
 		}
 
 		retry := errors.Is(err, ErrRetry) || (attempt < maxRetries && isTransient(err))
@@ -47,6 +62,8 @@ func (a *Agent) requestAssistantWithRetry(ctx context.Context, model ai.Model, t
 		if logger != nil {
 			logger.Logf("agent: retrying provider request after error (attempt=%d, err=%v)", attempt+1, err)
 		}
+		a.emit(Event{Kind: EventRetryScheduled, State: StateRequestingModel, Turn: turn, Err: err})
+		a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(turn, model, ""), Retries: 1})
 
 		wait := delay
 		var rateLimit *providers.RateLimitError

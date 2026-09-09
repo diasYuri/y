@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/telemetry"
 )
 
 // invokeOnError calls the OnError hook (if any). When the hook returns nil,
@@ -19,11 +20,25 @@ func (a *Agent) invokeOnError(ctx context.Context, phase ErrorPhase, err error) 
 	}
 	a.mu.Lock()
 	hook := a.onError
+	model := a.model
 	a.mu.Unlock()
-	if hook == nil {
-		return err
+	if phase == ErrorPhaseRequest {
+		a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(0, model, ""), ProviderErrors: 1})
 	}
-	return hook(ctx, phase, err)
+	for _, runtimeHook := range a.hooksSnapshot() {
+		if runtimeHook.OnError == nil {
+			continue
+		}
+		decision := runtimeHook.OnError(ctx, phase, err)
+		if decision == nil || errors.Is(decision, ErrRetry) {
+			return decision
+		}
+		err = decision
+	}
+	if hook != nil {
+		return hook(ctx, phase, err)
+	}
+	return err
 }
 
 // State returns the agent's current lifecycle state.
@@ -103,6 +118,11 @@ func (a *Agent) Abort() {
 	if a.abortFunc != nil {
 		a.abortFunc()
 		a.abortFunc = nil
+		a.emit(Event{Kind: EventAbortRequested, State: StateCanceled})
+		a.mu.Lock()
+		model := a.model
+		a.mu.Unlock()
+		a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(0, model, ""), Aborts: 1})
 	}
 }
 

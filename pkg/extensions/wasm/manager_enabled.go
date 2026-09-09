@@ -251,6 +251,51 @@ func (m *activeManager) CallTool(ctx context.Context, id string, req ToolRequest
 	return ToolResponse(tr), nil
 }
 
+// CallRuntime dispatches the P1 lifecycle/event/hook envelope through the
+// guest's existing handle export. No new guest export is needed, preserving
+// pi.wasm.v1 modules that already route envelopes by Kind.
+func (m *activeManager) CallRuntime(ctx context.Context, id string, req RuntimeRequest) (resp RuntimeResponse, err error) {
+	switch req.Kind {
+	case KindLifecycle, KindRuntimeEvent, KindHook:
+	default:
+		return RuntimeResponse{}, newExtensionError(id, CodeInvalidArgument, "unsupported runtime envelope kind", nil)
+	}
+	if _, ok := m.state.lookup(id); !ok {
+		return RuntimeResponse{}, fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
+	}
+	if err := m.Load(ctx, id); err != nil {
+		return RuntimeResponse{}, err
+	}
+	m.mu.Lock()
+	mod, ok := m.loaded[id]
+	m.mu.Unlock()
+	if !ok {
+		return RuntimeResponse{}, fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = newExtensionError(id, CodeTrap, fmt.Sprintf("guest runtime call panicked: %v", recovered), nil)
+			resp = RuntimeResponse{}
+			m.state.updateStatus(id, StatusFailed, err)
+		}
+	}()
+	raw, err := m.dispatch(ctx, mod, Envelope{APIVersion: SupportedAPIVersion, RequestID: req.RequestID, ExtensionID: id, Kind: req.Kind, Payload: req.Payload}, mod.fnHandle, ExportHandle)
+	if err != nil {
+		return RuntimeResponse{}, err
+	}
+	parsed, err := UnmarshalResponse(raw)
+	if err != nil {
+		return RuntimeResponse{}, newExtensionError(id, CodeInternal, "decode guest runtime response", err)
+	}
+	if !parsed.OK {
+		if parsed.Error == nil {
+			return RuntimeResponse{}, newExtensionError(id, CodeInternal, "guest reported runtime failure without an error object", nil)
+		}
+		return RuntimeResponse{}, newExtensionError(id, parsed.Error.Code, parsed.Error.Message, nil)
+	}
+	return RuntimeResponse{Payload: append(json.RawMessage(nil), parsed.Payload...)}, nil
+}
+
 // invokeInit calls the guest's pi_extension_init export. Failures fall back
 // to a trap-safe error so the caller can decide whether to retry or unload.
 func (m *activeManager) invokeInit(ctx context.Context, mod *loadedModule) (err error) {

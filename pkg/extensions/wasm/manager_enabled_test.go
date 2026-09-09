@@ -161,6 +161,33 @@ func TestEnabledManagerCallToolReturnsResponse(t *testing.T) {
 	}
 }
 
+func TestEnabledManagerCallRuntimeReturnsGuestPayload(t *testing.T) {
+	expected := mustMarshalResponse(Response{OK: true, Payload: json.RawMessage(`{"accepted":true}`)})
+	root := t.TempDir()
+	extDir := filepath.Join(root, "fake.runtime")
+	if err := os.MkdirAll(extDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extDir, ManifestFileName), []byte(validManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extDir, "module.wasm"), buildABIToolModule(expected), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(Config{ExtensionDirs: []string{root}, Policy: AllowAllPolicy()})
+	defer m.Close(context.Background())
+	if err := m.Discover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	response, err := m.CallRuntime(context.Background(), "fake.search", RuntimeRequest{Kind: KindLifecycle, Payload: json.RawMessage(`{"phase":"before_turn"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(response.Payload) != `{"accepted":true}` {
+		t.Fatalf("response = %s", response.Payload)
+	}
+}
+
 // TestEnabledManagerCallToolTrap verifies that a guest trap surfaces as a
 // structured ExtensionError instead of crashing the host.
 func TestEnabledManagerCallToolTrap(t *testing.T) {

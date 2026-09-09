@@ -18,6 +18,7 @@ import (
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/policy"
+	"github.com/yuri/y/pkg/session"
 	"github.com/yuri/y/pkg/tools"
 )
 
@@ -274,7 +275,7 @@ func executeHeadlessTurn(
 	provider agent.Provider,
 	registry *tools.Registry,
 	agentOpts []agent.Option,
-	sessionStore *storage.SessionStore,
+	sessionStore session.Store,
 	cwd string,
 	prompt string,
 	noSession bool,
@@ -306,7 +307,7 @@ func executeChatPrompts(
 	provider agent.Provider,
 	registry *tools.Registry,
 	agentOpts []agent.Option,
-	sessionStore *storage.SessionStore,
+	sessionStore session.Store,
 	cwd string,
 	prompts []string,
 	noSession bool,
@@ -349,7 +350,7 @@ func runInteractiveChat(
 	provider agent.Provider,
 	registry *tools.Registry,
 	agentOpts []agent.Option,
-	sessionStore *storage.SessionStore,
+	sessionStore session.Store,
 	cwd string,
 	initialPrompts []string,
 	noSession bool,
@@ -443,7 +444,7 @@ func finishHeadlessError(stderr io.Writer, err error) int {
 	return exitCodeExecution
 }
 
-func saveHeadlessSession(ctx context.Context, sessionStore *storage.SessionStore, cwd string, messages []ai.Message) error {
+func saveHeadlessSession(ctx context.Context, sessionStore session.Store, cwd string, messages []ai.Message) error {
 	if sessionStore == nil || len(messages) == 0 {
 		return nil
 	}

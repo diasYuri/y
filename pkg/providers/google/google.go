@@ -4,6 +4,7 @@ package google
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -353,6 +354,7 @@ func (p *Provider) httpOptions(opts providers.StreamOptions, model ai.Model) gen
 			headers.Set(key, value)
 		}
 	}
+	providers.ApplyRequestMetadata(headers, opts)
 	if opts.Timeout > 0 {
 		timeout := opts.Timeout
 		return genai.HTTPOptions{
@@ -475,9 +477,9 @@ func buildSDKRequest(req providers.StreamRequest, httpOptions genai.HTTPOptions)
 		}
 		config.Tools = []*genai.Tool{{FunctionDeclarations: declarations}}
 	}
-	if req.Options.Reasoning != "" {
+	if req.Options.Reasoning != "" && req.Options.Reasoning != ai.ThinkingOff {
 		budget := int32(req.Options.ThinkingBudgets[req.Options.Reasoning])
-		config.ThinkingConfig = &genai.ThinkingConfig{ThinkingBudget: &budget}
+		config.ThinkingConfig = &genai.ThinkingConfig{IncludeThoughts: true, ThinkingBudget: &budget}
 	}
 	applyGoogleExtras(config, req.Options.Extras)
 	return contents, config, nil
@@ -500,7 +502,15 @@ func convertSDKMessage(message ai.Message) (*genai.Content, error) {
 					return nil, fmt.Errorf("decode tool call %q arguments: %w", call.Name, err)
 				}
 			}
-			parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: call.ID, Name: call.Name, Args: args}})
+			part := &genai.Part{FunctionCall: &genai.FunctionCall{ID: call.ID, Name: call.Name, Args: args}}
+			if call.ThoughtSignature != "" {
+				signature, err := base64.StdEncoding.DecodeString(call.ThoughtSignature)
+				if err != nil {
+					return nil, fmt.Errorf("decode tool call %q thought signature: %w", call.Name, err)
+				}
+				part.ThoughtSignature = signature
+			}
+			parts = append(parts, part)
 		}
 	}
 	if message.Role == ai.RoleToolResult {
@@ -531,7 +541,15 @@ func convertSDKContent(blocks []ai.ContentBlock) ([]*genai.Part, error) {
 				parts = append(parts, genai.NewPartFromBytes(block.ImageData, block.ImageMIMEType))
 			}
 		case ai.ContentThinking:
-			// Gemini manages thought content through ThinkingConfig.
+			part := &genai.Part{Text: block.Thinking, Thought: true}
+			if block.Signature != "" {
+				signature, err := base64.StdEncoding.DecodeString(block.Signature)
+				if err != nil {
+					return nil, fmt.Errorf("decode thinking signature: %w", err)
+				}
+				part.ThoughtSignature = signature
+			}
+			parts = append(parts, part)
 		default:
 			return nil, fmt.Errorf("unsupported content type %q", block.Type)
 		}
@@ -601,6 +619,7 @@ func (p *Provider) inspectSDKRequest(ctx context.Context, req providers.StreamRe
 			httpReq.Header.Add(key, value)
 		}
 	}
+	providers.ApplyRequestMetadata(httpReq.Header, req.Options)
 	p.inspector(httpReq)
 }
 
@@ -619,8 +638,13 @@ func newGoogleConsumer() func(*genai.GenerateContentResponse) []ai.Event {
 				if part == nil {
 					continue
 				}
-				if part.Text != "" {
+				if part.Thought && part.Text != "" {
+					events = append(events, ai.ThinkingDelta{ContentIndex: 0, Thinking: part.Text, Signature: base64.StdEncoding.EncodeToString(part.ThoughtSignature)})
+				} else if part.Text != "" {
 					events = append(events, ai.TextDelta{ContentIndex: 0, Text: part.Text})
+				}
+				if part.InlineData != nil && len(part.InlineData.Data) > 0 {
+					events = append(events, ai.ImageEvent{ContentIndex: 0, Data: append([]byte(nil), part.InlineData.Data...), MIMEType: part.InlineData.MIMEType})
 				}
 				if part.FunctionCall != nil {
 					state.toolUse = true
@@ -632,9 +656,10 @@ func newGoogleConsumer() func(*genai.GenerateContentResponse) []ai.Event {
 					if id == "" {
 						id = fmt.Sprintf("%s_%d", part.FunctionCall.Name, atomic.AddUint64(&toolIDCounter, 1))
 					}
+					toolCall := ai.ToolCall{ID: id, Name: part.FunctionCall.Name, Arguments: args, ThoughtSignature: base64.StdEncoding.EncodeToString(part.ThoughtSignature)}
 					events = append(events, ai.ToolCallEvent{
 						ContentIndex: 0,
-						ToolCall:     ai.ToolCall{ID: id, Name: part.FunctionCall.Name, Arguments: args},
+						ToolCall:     toolCall,
 						Complete:     true,
 					})
 				}

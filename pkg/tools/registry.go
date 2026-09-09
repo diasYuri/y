@@ -45,6 +45,12 @@ type cachedResult struct {
 	expiresAt time.Time
 }
 
+type inflightOperation struct {
+	done chan struct{}
+	resp ToolResponse
+	err  error
+}
+
 // Registry stores tool descriptors and handlers.
 type Registry struct {
 	mu              sync.RWMutex
@@ -56,11 +62,24 @@ type Registry struct {
 	cacheEnabled    bool
 	cacheTTL        time.Duration
 	cacheMaxSize    int
+	operations      map[string]ToolResponse
+	inflight        map[string]*inflightOperation
+}
+
+func capabilityNames(capabilities []Capability) []string {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	out := make([]string, len(capabilities))
+	for i, capability := range capabilities {
+		out[i] = string(capability)
+	}
+	return out
 }
 
 // NewRegistry creates an empty tool registry.
 func NewRegistry(opts ...RegistryOption) *Registry {
-	r := &Registry{entries: make(map[string]registryEntry)}
+	r := &Registry{entries: make(map[string]registryEntry), operations: make(map[string]ToolResponse), inflight: make(map[string]*inflightOperation)}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(r)
@@ -166,22 +185,38 @@ func (r *Registry) GetExecutionMode(name string) ExecutionMode {
 
 // Handle executes a registered tool by request name.
 func (r *Registry) Handle(ctx context.Context, req ToolRequest) (ToolResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	desc, handler, ok := r.Get(req.Name)
 	if !ok {
 		return ToolResponse{}, toolError("tool_not_found", fmt.Sprintf("tool %q not found", req.Name), ErrToolNotFound)
 	}
-	policy := r.policy
-	if policy == nil {
-		policy = WorkspacePolicy()
+	policyEngine := r.policy
+	if policyEngine == nil {
+		policyEngine = WorkspacePolicy()
 	}
-	if desc.Sensitive {
-		decision, err := decide(ctx, policy, PolicyRequest{
-			ToolName:      req.Name,
-			Capability:    capabilityForPolicy(desc),
-			WorkspaceRoot: req.WorkspaceRoot,
-			Path:          req.Name,
-			Sensitive:     true,
-			Approval:      req.Approval,
+	auditAll := false
+	if marker, ok := policyEngine.(interface{ AuditAllTools() bool }); ok {
+		auditAll = marker.AuditAllTools()
+	}
+	if desc.Sensitive || len(desc.Capabilities) > 0 || auditAll {
+		decision, err := decide(ctx, policyEngine, PolicyRequest{
+			ToolName:               req.Name,
+			Capability:             capabilityForPolicy(desc),
+			WorkspaceRoot:          req.WorkspaceRoot,
+			Path:                   req.Name,
+			Sensitive:              desc.Sensitive,
+			Approval:               req.Approval,
+			Identity:               req.Identity,
+			RequestID:              req.RequestID,
+			RunID:                  req.RunID,
+			TurnID:                 req.TurnID,
+			ToolCallID:             req.ID,
+			Arguments:              req.Arguments,
+			PolicyVersion:          req.PolicyVersion,
+			AuthorizationExpiresAt: req.AuthorizationExpiresAt,
+			RequiredCapabilities:   capabilityNames(desc.Capabilities),
 		})
 		if err != nil {
 			return ToolResponse{}, err
@@ -192,23 +227,39 @@ func (r *Registry) Handle(ctx context.Context, req ToolRequest) (ToolResponse, e
 				if decision.Reason != "" {
 					message += ": " + decision.Reason
 				}
-				return ToolResponse{}, toolError("approval_required", message, ErrApprovalRequired)
+				approval := policy.ApprovalRequest{ToolName: req.Name, RequestID: req.RequestID, RunID: req.RunID, TurnID: req.TurnID, ToolCallID: req.ID, Reason: message}
+				if decision.Approval != nil {
+					approval = *decision.Approval
+				}
+				return ToolResponse{}, &ApprovalError{Request: approval, Cause: ErrApprovalRequired}
 			}
 			approval, err := r.approvalHandler.RequestApproval(ctx, *decision.Approval)
 			if err != nil {
 				return ToolResponse{}, err
 			}
 			if approval == nil {
-				return ToolResponse{}, toolError("approval_required", fmt.Sprintf("tool %q approval cancelled", req.Name), ErrApprovalRequired)
+				return ToolResponse{}, &ApprovalError{Request: *decision.Approval, Cause: ErrApprovalRequired}
+			}
+			if approval.ApprovalID == "" {
+				approval.ApprovalID = decision.Approval.ApprovalID
 			}
 			req.Approval = approval
-			if err := authorize(ctx, policy, PolicyRequest{
-				ToolName:      req.Name,
-				Capability:    capabilityForPolicy(desc),
-				WorkspaceRoot: req.WorkspaceRoot,
-				Path:          req.Name,
-				Sensitive:     true,
-				Approval:      req.Approval,
+			if err := authorize(ctx, policyEngine, PolicyRequest{
+				ToolName:               req.Name,
+				Capability:             capabilityForPolicy(desc),
+				WorkspaceRoot:          req.WorkspaceRoot,
+				Path:                   req.Name,
+				Sensitive:              desc.Sensitive,
+				Approval:               req.Approval,
+				Identity:               req.Identity,
+				RequestID:              req.RequestID,
+				RunID:                  req.RunID,
+				TurnID:                 req.TurnID,
+				ToolCallID:             req.ID,
+				Arguments:              req.Arguments,
+				PolicyVersion:          req.PolicyVersion,
+				AuthorizationExpiresAt: req.AuthorizationExpiresAt,
+				RequiredCapabilities:   capabilityNames(desc.Capabilities),
 			}); err != nil {
 				return ToolResponse{}, err
 			}
@@ -239,8 +290,40 @@ func (r *Registry) Handle(ctx context.Context, req ToolRequest) (ToolResponse, e
 		}
 	}
 
+	// Tool call IDs are the idempotency boundary for side effects. Reserve the
+	// operation only after validation and the read-only result cache check so a
+	// malformed request never blocks a valid retry. Concurrent duplicates wait
+	// for the first handler and receive the same result.
+	if req.IdempotencyKey != "" {
+		r.mu.Lock()
+		completed, ok := r.operations[req.IdempotencyKey]
+		if ok {
+			r.mu.Unlock()
+			return cloneResponse(completed), nil
+		}
+		if operation := r.inflight[req.IdempotencyKey]; operation != nil {
+			r.mu.Unlock()
+			select {
+			case <-operation.done:
+				return cloneResponse(operation.resp), operation.err
+			case <-ctx.Done():
+				return ToolResponse{}, ctx.Err()
+			}
+		}
+		if r.inflight == nil {
+			r.inflight = make(map[string]*inflightOperation)
+		}
+		operation := &inflightOperation{done: make(chan struct{})}
+		r.inflight[req.IdempotencyKey] = operation
+		r.mu.Unlock()
+
+		resp, err := r.executeHandler(ctx, handler, req, desc)
+		r.completeOperation(req.IdempotencyKey, operation, resp, err)
+		return resp, err
+	}
+
 	start := time.Now()
-	resp, err := handler.Handle(ctx, req)
+	resp, err := handler.Handle(withToolRequestContext(ctx, req), req)
 	durationMs := time.Since(start).Milliseconds()
 
 	if r.teleEmitter != nil {
@@ -262,8 +345,49 @@ func (r *Registry) Handle(ctx context.Context, req ToolRequest) (ToolResponse, e
 		r.cache[key] = cachedResult{resp: cloneResponse(resp), expiresAt: time.Now().Add(r.cacheTTL)}
 		r.mu.Unlock()
 	}
-
 	return resp, err
+}
+
+func (r *Registry) executeHandler(ctx context.Context, handler ToolHandler, req ToolRequest, desc ToolDescriptor) (ToolResponse, error) {
+	start := time.Now()
+	resp, err := handler.Handle(withToolRequestContext(ctx, req), req)
+	durationMs := time.Since(start).Milliseconds()
+
+	if r.teleEmitter != nil {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		r.teleEmitter.Emit(telemetry.NewEvent(
+			telemetry.EventToolCall,
+			"",
+			telemetry.ToolCallPayload(req.Name, durationMs, errStr),
+		))
+	}
+
+	if r.cacheEnabled && !desc.Sensitive && err == nil {
+		key := cacheKey{name: req.Name, arguments: string(req.Arguments), workspaceRoot: req.WorkspaceRoot}
+		r.mu.Lock()
+		r.evictIfNeeded()
+		r.cache[key] = cachedResult{resp: cloneResponse(resp), expiresAt: time.Now().Add(r.cacheTTL)}
+		r.mu.Unlock()
+	}
+	return resp, err
+}
+
+func (r *Registry) completeOperation(key string, operation *inflightOperation, resp ToolResponse, err error) {
+	r.mu.Lock()
+	if err == nil {
+		if r.operations == nil {
+			r.operations = make(map[string]ToolResponse)
+		}
+		r.operations[key] = cloneResponse(resp)
+	}
+	operation.resp = cloneResponse(resp)
+	operation.err = err
+	delete(r.inflight, key)
+	close(operation.done)
+	r.mu.Unlock()
 }
 
 func (r *Registry) evictIfNeeded() {
@@ -292,13 +416,22 @@ func (r *Registry) evictIfNeeded() {
 
 func cloneResponse(resp ToolResponse) ToolResponse {
 	cloned := ToolResponse{
-		IsError: resp.IsError,
-		Details: append([]byte(nil), resp.Details...),
+		IsError:  resp.IsError,
+		Details:  append([]byte(nil), resp.Details...),
+		Metadata: append([]byte(nil), resp.Metadata...),
+		Logs:     append([]LogEntry(nil), resp.Logs...),
+	}
+	for i := range cloned.Logs {
+		cloned.Logs[i].Details = append([]byte(nil), cloned.Logs[i].Details...)
 	}
 	for _, c := range resp.Content {
 		cloned.Content = append(cloned.Content, ContentBlock{
-			Type: c.Type,
-			Text: c.Text,
+			Type:             c.Type,
+			Text:             c.Text,
+			ImageData:        append([]byte(nil), c.ImageData...),
+			ImageMIMEType:    c.ImageMIMEType,
+			Details:          append([]byte(nil), c.Details...),
+			ProviderMetadata: append([]byte(nil), c.ProviderMetadata...),
 		})
 	}
 	return cloned

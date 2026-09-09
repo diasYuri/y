@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	publicsession "github.com/yuri/y/pkg/session"
 )
 
 const sessionFormatVersion = 1
@@ -49,11 +50,21 @@ type SessionTruncationEntry struct {
 
 // SessionMessage is the JSONL payload used for transcript messages.
 type SessionMessage struct {
-	Role       string                `json:"role"`
-	Content    []SessionContentBlock `json:"content,omitempty"`
-	ToolCalls  []SessionToolCall     `json:"tool_calls,omitempty"`
-	ToolResult *SessionToolResult    `json:"tool_result,omitempty"`
-	Timestamp  time.Time             `json:"timestamp"`
+	SchemaVersion    int                   `json:"schema_version,omitempty"`
+	ID               string                `json:"id,omitempty"`
+	Role             string                `json:"role"`
+	Content          []SessionContentBlock `json:"content,omitempty"`
+	ToolCalls        []SessionToolCall     `json:"tool_calls,omitempty"`
+	ToolResult       *SessionToolResult    `json:"tool_result,omitempty"`
+	Timestamp        time.Time             `json:"timestamp"`
+	ResponseID       string                `json:"response_id,omitempty"`
+	Provider         string                `json:"provider,omitempty"`
+	ModelID          string                `json:"model_id,omitempty"`
+	StopReason       string                `json:"stop_reason,omitempty"`
+	Usage            ai.Usage              `json:"usage,omitempty"`
+	ProviderMetadata json.RawMessage       `json:"provider_metadata,omitempty"`
+	Details          json.RawMessage       `json:"details,omitempty"`
+	Error            *ai.ProviderError     `json:"error,omitempty"`
 }
 
 // SessionContentBlock is a JSONL payload for normalized content blocks.
@@ -65,6 +76,7 @@ type SessionContentBlock struct {
 	Signature        string          `json:"signature,omitempty"`
 	ImageData        []byte          `json:"image_data,omitempty"`
 	ImageMIMEType    string          `json:"image_mime_type,omitempty"`
+	Details          json.RawMessage `json:"details,omitempty"`
 	ProviderMetadata json.RawMessage `json:"provider_metadata,omitempty"`
 }
 
@@ -74,6 +86,7 @@ type SessionToolCall struct {
 	Name             string          `json:"name"`
 	Arguments        json.RawMessage `json:"arguments,omitempty"`
 	ThoughtSignature string          `json:"thought_signature,omitempty"`
+	Details          json.RawMessage `json:"details,omitempty"`
 }
 
 // SessionToolResult is the JSONL payload for a tool result.
@@ -83,25 +96,20 @@ type SessionToolResult struct {
 	Content    []SessionContentBlock `json:"content,omitempty"`
 	IsError    bool                  `json:"is_error,omitempty"`
 	Details    json.RawMessage       `json:"details,omitempty"`
+	Usage      ai.Usage              `json:"usage,omitempty"`
+	Metadata   json.RawMessage       `json:"metadata,omitempty"`
 }
 
-// SessionSummary describes one stored transcript.
-type SessionSummary struct {
-	Path         string
-	ID           string
-	CWD          string
-	Created      time.Time
-	Modified     time.Time
-	MessageCount int
-	ByteSize     int64
-	Truncated    bool
-}
+// SessionSummary is the public session entity implemented by this store.
+type SessionSummary = publicsession.SessionSummary
 
 // SessionStore reads and writes session JSONL files.
 type SessionStore struct {
 	agentDir string
 	now      func() time.Time
 }
+
+var _ publicsession.Store = (*SessionStore)(nil)
 
 // NewSessionStore creates a store rooted at agentDir.
 func NewSessionStore(agentDir string) *SessionStore {
@@ -506,8 +514,18 @@ func sessionFileName(ts time.Time, id string) string {
 
 func toSessionMessage(message ai.Message) SessionMessage {
 	out := SessionMessage{
-		Role:      string(message.Role),
-		Timestamp: message.Timestamp,
+		SchemaVersion:    message.SchemaVersion,
+		ID:               message.ID,
+		Role:             string(message.Role),
+		Timestamp:        message.Timestamp,
+		ResponseID:       message.ResponseID,
+		Provider:         string(message.Provider),
+		ModelID:          message.ModelID,
+		StopReason:       string(message.StopReason),
+		Usage:            message.Usage,
+		ProviderMetadata: append(json.RawMessage(nil), message.ProviderMetadata...),
+		Details:          append(json.RawMessage(nil), message.Details...),
+		Error:            message.Error,
 	}
 	if len(message.Content) > 0 {
 		out.Content = make([]SessionContentBlock, len(message.Content))
@@ -520,6 +538,7 @@ func toSessionMessage(message ai.Message) SessionMessage {
 				Signature:        block.Signature,
 				ImageData:        append([]byte(nil), block.ImageData...),
 				ImageMIMEType:    block.ImageMIMEType,
+				Details:          append(json.RawMessage(nil), block.Details...),
 				ProviderMetadata: append(json.RawMessage(nil), block.ProviderMetadata...),
 			}
 		}
@@ -532,6 +551,7 @@ func toSessionMessage(message ai.Message) SessionMessage {
 				Name:             call.Name,
 				Arguments:        append(json.RawMessage(nil), call.Arguments...),
 				ThoughtSignature: call.ThoughtSignature,
+				Details:          append(json.RawMessage(nil), call.Details...),
 			}
 		}
 	}
@@ -541,6 +561,8 @@ func toSessionMessage(message ai.Message) SessionMessage {
 			ToolName:   message.ToolResult.ToolName,
 			IsError:    message.ToolResult.IsError,
 			Details:    append(json.RawMessage(nil), message.ToolResult.Details...),
+			Usage:      message.ToolResult.Usage,
+			Metadata:   append(json.RawMessage(nil), message.ToolResult.Metadata...),
 		}
 		if len(message.ToolResult.Content) > 0 {
 			result.Content = make([]SessionContentBlock, len(message.ToolResult.Content))
@@ -553,6 +575,7 @@ func toSessionMessage(message ai.Message) SessionMessage {
 					Signature:        block.Signature,
 					ImageData:        append([]byte(nil), block.ImageData...),
 					ImageMIMEType:    block.ImageMIMEType,
+					Details:          append(json.RawMessage(nil), block.Details...),
 					ProviderMetadata: append(json.RawMessage(nil), block.ProviderMetadata...),
 				}
 			}

@@ -7,6 +7,50 @@ import (
 	policypkg "github.com/yuri/y/pkg/policy"
 )
 
+type toolRequestContextKey struct{}
+
+func withToolRequestContext(ctx context.Context, req ToolRequest) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, toolRequestContextKey{}, req)
+}
+
+func policyRequestWithToolContext(ctx context.Context, req PolicyRequest) PolicyRequest {
+	toolRequest, ok := ctx.Value(toolRequestContextKey{}).(ToolRequest)
+	if !ok {
+		return req
+	}
+	if toolRequest.Identity.TenantID != "" || toolRequest.Identity.CallerID != "" || len(toolRequest.Identity.Capabilities) > 0 {
+		req.Identity = toolRequest.Identity
+	}
+	if req.RequestID == "" {
+		req.RequestID = toolRequest.RequestID
+	}
+	if req.RunID == "" {
+		req.RunID = toolRequest.RunID
+	}
+	if req.TurnID == "" {
+		req.TurnID = toolRequest.TurnID
+	}
+	if req.ToolCallID == "" {
+		req.ToolCallID = toolRequest.ID
+	}
+	if req.PolicyVersion == "" {
+		req.PolicyVersion = toolRequest.PolicyVersion
+	}
+	if len(req.Arguments) == 0 {
+		req.Arguments = toolRequest.Arguments
+	}
+	if len(req.RequiredCapabilities) == 0 {
+		req.RequiredCapabilities = capabilityNames(toolRequest.RequiredCapabilities)
+	}
+	if req.Approval == nil {
+		req.Approval = toolRequest.Approval
+	}
+	return req
+}
+
 // PolicyDecision is the typed authorization result for a concrete tool operation.
 type PolicyDecision = policypkg.Decision
 
@@ -41,8 +85,10 @@ func WorkspacePolicy() Policy {
 }
 
 func decide(ctx context.Context, policy Policy, req PolicyRequest) (PolicyDecision, error) {
-	if err := ctx.Err(); err != nil {
-		return PolicyDecision{}, err
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return PolicyDecision{}, err
+		}
 	}
 	if policy == nil {
 		policy = WorkspacePolicy()
@@ -55,6 +101,10 @@ func decide(ctx context.Context, policy Policy, req PolicyRequest) (PolicyDecisi
 }
 
 func authorize(ctx context.Context, policy Policy, req PolicyRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req = policyRequestWithToolContext(ctx, req)
 	decision, err := decide(ctx, policy, req)
 	if err != nil {
 		return err

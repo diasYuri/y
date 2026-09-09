@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -90,6 +92,37 @@ func TestRegistryAppliesPolicyToSensitiveTools(t *testing.T) {
 	}
 	if ran != 1 {
 		t.Fatalf("handler ran %d times after deny, want 1", ran)
+	}
+}
+
+func TestRegistryPreservesIdentityForBuiltInAuthorization(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "visible.txt"), []byte("visible"), 0o644); err != nil {
+		t.Fatalf("WriteFile fixture: %v", err)
+	}
+	config := policypkg.DefaultConfig()
+	config.RequireTenant = true
+	engine := policypkg.NewDistributedEngine(policypkg.DistributedConfig{
+		Config:              config,
+		AllowedCapabilities: map[string][]string{"tenant-a": {string(CapabilityFilesystemRead)}},
+	})
+	reg := NewRegistry(WithPolicy(engine))
+	if err := RegisterFilesystem(reg, FilesystemOptions{WorkspaceRoot: root, Policy: engine}); err != nil {
+		t.Fatalf("RegisterFilesystem: %v", err)
+	}
+	response, err := reg.Handle(context.Background(), ToolRequest{
+		Name:      "read_file",
+		Arguments: json.RawMessage(`{"path":"visible.txt"}`),
+		Identity: policypkg.Identity{
+			TenantID:     "tenant-a",
+			Capabilities: []string{string(CapabilityFilesystemRead)},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if len(response.Content) != 1 || response.Content[0].Text != "visible" {
+		t.Fatalf("response = %#v, want visible file", response)
 	}
 }
 

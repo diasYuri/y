@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/providers"
 	"github.com/yuri/y/pkg/tools"
 )
@@ -20,6 +23,7 @@ const (
 	StateCompleted       State = "completed"
 	StateCanceled        State = "canceled"
 	StateFailed          State = "failed"
+	StateWaitingApproval State = "waiting_approval"
 )
 
 // ToolExecutionMode controls whether a tool batch runs sequentially or in
@@ -42,26 +46,53 @@ const (
 type EventKind string
 
 const (
-	EventStateChanged EventKind = "state_changed"
-	EventTurnStarted  EventKind = "turn_started"
-	EventTurnEnded    EventKind = "turn_ended"
-	EventTextDelta    EventKind = "text_delta"
-	EventToolStarted  EventKind = "tool_started"
-	EventToolEnded    EventKind = "tool_ended"
-	EventCompleted    EventKind = "completed"
+	EventStateChanged        EventKind = "state_changed"
+	EventAgentStarted        EventKind = "agent_started"
+	EventAgentCompleted      EventKind = "agent_completed"
+	EventAgentSettled        EventKind = "agent_settled"
+	EventMessageStarted      EventKind = "message_started"
+	EventMessageDelta        EventKind = "message_delta"
+	EventMessageCompleted    EventKind = "message_completed"
+	EventThinkingDelta       EventKind = "thinking_delta"
+	EventTurnStarted         EventKind = "turn_started"
+	EventTurnCompleted       EventKind = "turn_completed"
+	EventTurnEnded           EventKind = "turn_ended" // compatibility alias value
+	EventToolStarted         EventKind = "tool_started"
+	EventToolProgress        EventKind = "tool_progress"
+	EventToolCompleted       EventKind = "tool_completed"
+	EventToolEnded           EventKind = "tool_ended" // compatibility alias value
+	EventRetryScheduled      EventKind = "retry_scheduled"
+	EventCompactionStarted   EventKind = "compaction_started"
+	EventCompactionCompleted EventKind = "compaction_completed"
+	EventStateCheckpointed   EventKind = "state_checkpointed"
+	EventAbortRequested      EventKind = "abort_requested"
+	EventAbortCompleted      EventKind = "abort_completed"
+	EventTextDelta           EventKind = "text_delta" // compatibility alias value
+	EventCompleted           EventKind = "completed"  // compatibility alias value
 )
 
 // Event is emitted by the agent as it progresses through the loop.
 type Event struct {
-	Kind       EventKind
-	State      State
-	Turn       int
-	Message    ai.Message
-	ToolCall   ai.ToolCall
-	ToolResult ai.ToolResult
-	Usage      ai.Usage
-	TextDelta  string
-	Err        error
+	Kind           EventKind          `json:"kind"`
+	State          State              `json:"state,omitempty"`
+	RunID          string             `json:"run_id,omitempty"`
+	SessionID      string             `json:"session_id,omitempty"`
+	TurnID         string             `json:"turn_id,omitempty"`
+	ToolCallID     string             `json:"tool_call_id,omitempty"`
+	Sequence       uint64             `json:"sequence,omitempty"`
+	Timestamp      time.Time          `json:"timestamp,omitempty"`
+	CorrelationID  string             `json:"correlation_id,omitempty"`
+	IdempotencyKey string             `json:"idempotency_key,omitempty"`
+	Turn           int                `json:"turn,omitempty"`
+	Message        ai.Message         `json:"message,omitempty"`
+	ToolCall       ai.ToolCall        `json:"tool_call,omitempty"`
+	ToolResult     ai.ToolResult      `json:"tool_result,omitempty"`
+	ToolProgress   tools.ToolProgress `json:"tool_progress,omitempty"`
+	Usage          ai.Usage           `json:"usage,omitempty"`
+	TextDelta      string             `json:"text_delta,omitempty"`
+	ThinkingDelta  string             `json:"thinking_delta,omitempty"`
+	Payload        json.RawMessage    `json:"payload,omitempty"`
+	Err            error              `json:"-"`
 }
 
 // EventSink receives state-machine events.
@@ -83,12 +114,22 @@ type ToolRegistry interface {
 
 // RunResult summarizes a completed or failed run.
 type RunResult struct {
-	Messages   []ai.Message
-	Usage      ai.Usage
-	Turns      int
-	State      State
-	StopReason ai.StopReason
-	Model      ai.Model
+	Messages   []ai.Message            `json:"messages,omitempty"`
+	Usage      ai.Usage                `json:"usage,omitempty"`
+	Turns      int                     `json:"turns,omitempty"`
+	State      State                   `json:"state,omitempty"`
+	StopReason ai.StopReason           `json:"stop_reason,omitempty"`
+	Model      ai.Model                `json:"model,omitempty"`
+	Error      *ai.ProviderError       `json:"error,omitempty"`
+	Approval   *policy.ApprovalRequest `json:"approval,omitempty"`
+}
+
+// PendingApproval is the durable continuation point for a tool invocation
+// that cannot proceed until a remote caller supplies a signed resolution.
+type PendingApproval struct {
+	Request  policy.ApprovalRequest `json:"request"`
+	ToolCall ai.ToolCall            `json:"tool_call"`
+	Turn     int                    `json:"turn"`
 }
 
 // Option configures an Agent.

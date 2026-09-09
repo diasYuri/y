@@ -1,5 +1,10 @@
 package agent
 
+import (
+	"fmt"
+	"time"
+)
+
 // setState updates the lifecycle state and broadcasts the transition.
 func (a *Agent) setState(state State) {
 	a.mu.Lock()
@@ -13,6 +18,29 @@ func (a *Agent) setState(state State) {
 // safely subscribe or unsubscribe themselves.
 func (a *Agent) emit(event Event) {
 	a.mu.Lock()
+	if event.RunID == "" {
+		event.RunID = a.runID
+	}
+	if event.SessionID == "" {
+		event.SessionID = a.sessionID
+	}
+	if event.TurnID == "" && event.Turn > 0 {
+		event.TurnID = fmt.Sprintf("%s-turn-%d", event.RunID, event.Turn)
+	}
+	if event.ToolCallID == "" && event.ToolCall.ID != "" {
+		event.ToolCallID = event.ToolCall.ID
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now().UTC()
+	}
+	if event.CorrelationID == "" {
+		event.CorrelationID = event.RunID
+	}
+	if event.IdempotencyKey == "" && a.idempotencyKey != "" {
+		event.IdempotencyKey = fmt.Sprintf("%s-event-%d", a.idempotencyKey, a.eventSequence+1)
+	}
+	a.eventSequence++
+	event.Sequence = a.eventSequence
 	sink := a.onEvent
 	a.mu.Unlock()
 	if sink != nil {

@@ -19,6 +19,28 @@ func TestEngineRequiresApprovalForSensitiveRequests(t *testing.T) {
 	}
 }
 
+func TestDistributedQuotaStoreIsIdempotentAcrossEngineInstances(t *testing.T) {
+	quota := NewInMemoryQuotaStore()
+	config := DistributedConfig{Config: Config{}, TenantLimits: map[string]int{"tenant-1": 1}, Quota: quota}
+	first := NewDistributedEngine(config)
+	second := NewDistributedEngine(config)
+	request := Request{ToolName: "write", RequestID: "req-1", RunID: "run-1", TurnID: "turn-1", ToolCallID: "call-1", Identity: Identity{TenantID: "tenant-1"}}
+	if _, err := first.Decide(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Decide(context.Background(), request); err != nil {
+		t.Fatalf("same operation should be idempotent: %v", err)
+	}
+	decision, err := second.Decide(context.Background(), Request{ToolName: "write", RequestID: "req-2", RunID: "run-2", TurnID: "turn-1", ToolCallID: "call-1", Identity: Identity{TenantID: "tenant-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Quota denials are represented in the decision, rather than as a transport error.
+	if decision.Kind != DecisionDeny {
+		t.Fatalf("quota decision = %#v", decision)
+	}
+}
+
 func TestEngineHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

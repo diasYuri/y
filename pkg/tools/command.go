@@ -135,12 +135,17 @@ func (t *shellTool) runCommand(ctx context.Context, req ToolRequest) (ToolRespon
 		timeout:   timeout,
 		limit:     maxOutput,
 		shellPath: t.shellPath,
+		progress: func(progress ToolProgress) {
+			if req.Progress != nil {
+				req.Progress(progress)
+			}
+		},
 	})
 	if err != nil {
 		return ToolResponse{}, err
 	}
 
-	return commandResultResponse(result, commandDetails{
+	response, responseErr := commandResultResponse(result, commandDetails{
 		Command:         input.Command,
 		Args:            append([]string(nil), input.Args...),
 		CWD:             cwd,
@@ -152,6 +157,10 @@ func (t *shellTool) runCommand(ctx context.Context, req ToolRequest) (ToolRespon
 		StdoutTruncated: result.StdoutTruncated,
 		StderrTruncated: result.StderrTruncated,
 	})
+	if req.Progress != nil {
+		req.Progress(ToolProgress{ToolCallID: req.ID, ToolName: req.Name, Done: true})
+	}
+	return response, responseErr
 }
 
 type commandSpec struct {
@@ -162,6 +171,7 @@ type commandSpec struct {
 	timeout   int64
 	limit     int64
 	shellPath string
+	progress  func(ToolProgress)
 }
 
 type commandResult struct {
@@ -208,8 +218,16 @@ func executeCommand(ctx context.Context, spec commandSpec) (commandResult, error
 	}
 
 	var wg sync.WaitGroup
-	stdoutCapture := newCapture(spec.limit)
-	stderrCapture := newCapture(spec.limit)
+	stdoutCapture := newCapture(spec.limit, func(text string) {
+		if spec.progress != nil && text != "" {
+			spec.progress(ToolProgress{Stream: "stdout", Text: text})
+		}
+	})
+	stderrCapture := newCapture(spec.limit, func(text string) {
+		if spec.progress != nil && text != "" {
+			spec.progress(ToolProgress{Stream: "stderr", Text: text})
+		}
+	})
 
 	wg.Add(2)
 	go func() {
@@ -309,13 +327,18 @@ type streamCapture struct {
 	buf       []byte
 	count     int64
 	truncated bool
+	onChunk   func(string)
 }
 
-func newCapture(limit int64) *streamCapture {
+func newCapture(limit int64, callbacks ...func(string)) *streamCapture {
 	if limit <= 0 {
 		limit = DefaultMaxCommandOutputBytes
 	}
-	return &streamCapture{limit: limit}
+	var onChunk func(string)
+	if len(callbacks) > 0 {
+		onChunk = callbacks[0]
+	}
+	return &streamCapture{limit: limit, onChunk: onChunk}
 }
 
 func (c *streamCapture) CopyFrom(r io.Reader) (int64, error) {
@@ -324,21 +347,27 @@ func (c *streamCapture) CopyFrom(r io.Reader) (int64, error) {
 
 func (c *streamCapture) Write(p []byte) (int, error) {
 	c.count += int64(len(p))
-	if c.limit <= 0 {
+	var retained []byte
+	switch {
+	case c.limit <= 0:
 		c.buf = append(c.buf, p...)
-		return len(p), nil
-	}
-	if int64(len(c.buf)) >= c.limit {
+		retained = p
+	case int64(len(c.buf)) >= c.limit:
 		c.truncated = true
-		return len(p), nil
+	default:
+		remaining := int(c.limit - int64(len(c.buf)))
+		if len(p) <= remaining {
+			c.buf = append(c.buf, p...)
+			retained = p
+		} else {
+			c.buf = append(c.buf, p[:remaining]...)
+			retained = p[:remaining]
+			c.truncated = true
+		}
 	}
-	remaining := int(c.limit - int64(len(c.buf)))
-	if len(p) <= remaining {
-		c.buf = append(c.buf, p...)
-		return len(p), nil
+	if len(retained) > 0 && c.onChunk != nil {
+		c.onChunk(string(retained))
 	}
-	c.buf = append(c.buf, p[:remaining]...)
-	c.truncated = true
 	return len(p), nil
 }
 

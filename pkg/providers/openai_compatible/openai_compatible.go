@@ -196,6 +196,7 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		}
 		httpReq.Header.Set(key, value)
 	}
+	providers.ApplyRequestMetadata(httpReq.Header, req.Options)
 	if apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
@@ -318,11 +319,12 @@ type streamOpts struct {
 }
 
 type messageParam struct {
-	Role       string          `json:"role"`
-	Content    any             `json:"content,omitempty"`
-	ToolCalls  []toolCallParam `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	Name       string          `json:"name,omitempty"`
+	Role             string          `json:"role"`
+	Content          any             `json:"content,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	ToolCalls        []toolCallParam `json:"tool_calls,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	Name             string          `json:"name,omitempty"`
 }
 
 type contentPart struct {
@@ -372,7 +374,7 @@ func buildRequest(req providers.StreamRequest) (chatRequest, error) {
 	if req.Options.MaxTokens > 0 {
 		out.MaxTokens = req.Options.MaxTokens
 	}
-	if req.Model.Reasoning && req.Options.Reasoning != "" {
+	if req.Model.Reasoning && req.Options.Reasoning != "" && req.Options.Reasoning != ai.ThinkingOff {
 		out.ReasoningEffort = string(req.Options.Reasoning)
 		out.MaxCompletionTok = req.Options.MaxTokens
 		out.MaxTokens = 0
@@ -389,7 +391,7 @@ func buildRequest(req providers.StreamRequest) (chatRequest, error) {
 		if err != nil {
 			return chatRequest{}, err
 		}
-		if converted.Content != nil || len(converted.ToolCalls) > 0 || converted.ToolCallID != "" {
+		if converted.Content != nil || converted.ReasoningContent != "" || len(converted.ToolCalls) > 0 || converted.ToolCallID != "" {
 			out.Messages = append(out.Messages, converted)
 		}
 	}
@@ -417,6 +419,11 @@ func convertMessage(msg ai.Message) (messageParam, error) {
 			return messageParam{}, err
 		}
 		out := messageParam{Role: "assistant", Content: content}
+		for _, block := range msg.Content {
+			if block.Type == ai.ContentThinking {
+				out.ReasoningContent += block.Thinking
+			}
+		}
 		for _, call := range msg.ToolCalls {
 			args := string(call.Arguments)
 			if strings.TrimSpace(args) == "" {
@@ -475,6 +482,9 @@ func convertContent(blocks []ai.ContentBlock) (any, error) {
 				},
 			})
 		case ai.ContentThinking:
+			// Reasoning is carried in messageParam.ReasoningContent because
+			// Chat Completions-compatible providers use that field instead of
+			// treating reasoning as assistant text.
 			continue
 		default:
 			return nil, fmt.Errorf("unsupported content type %q", block.Type)
@@ -504,8 +514,9 @@ func toolResultText(blocks []ai.ContentBlock) string {
 }
 
 type streamState struct {
-	tools   map[int]*toolState
-	toolUse bool
+	tools      map[int]*toolState
+	toolUse    bool
+	responseID string
 }
 
 type toolState struct {
@@ -524,6 +535,9 @@ func (s *streamState) consume(data []byte) []ai.Event {
 			ai.ErrorEvent{Code: event.Error.Code, Message: event.Error.Message},
 			ai.StopEvent{Reason: ai.StopReasonError},
 		}
+	}
+	if event.ID != "" {
+		s.responseID = event.ID
 	}
 	events := make([]ai.Event, 0, 3)
 	usage := event.Usage.normalized()
@@ -550,6 +564,9 @@ func (s *streamState) consume(data []byte) []ai.Event {
 				})
 			}
 		}
+		if choice.Delta.ReasoningContent != "" {
+			events = append(events, ai.ThinkingDelta{ContentIndex: choice.Index, Thinking: choice.Delta.ReasoningContent})
+		}
 		if choice.FinishReason != "" {
 			for _, tool := range s.tools {
 				if tool.id == "" && tool.name == "" && tool.arguments.Len() == 0 {
@@ -574,7 +591,7 @@ func (s *streamState) consume(data []byte) []ai.Event {
 				events = append(events, ai.UsageEvent{Usage: usage})
 				hasUsage = false
 			}
-			events = append(events, ai.StopEvent{Reason: mapFinishReason(choice.FinishReason, s.toolUse)})
+			events = append(events, ai.StopEvent{Reason: mapFinishReason(choice.FinishReason, s.toolUse), ResponseID: s.responseID})
 		}
 	}
 	if hasUsage {
@@ -593,6 +610,7 @@ func (s *streamState) tool(index int) *toolState {
 }
 
 type completionChunk struct {
+	ID      string `json:"id"`
 	Choices []struct {
 		Index int `json:"index"`
 		Delta struct {
@@ -606,6 +624,7 @@ type completionChunk struct {
 					Arguments string `json:"arguments"`
 				} `json:"function"`
 			} `json:"tool_calls"`
+			ReasoningContent string `json:"reasoning_content"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -641,6 +660,7 @@ func (u usagePayload) normalized() ai.Usage {
 	return ai.Usage{
 		InputTokens:     input,
 		OutputTokens:    output,
+		ReasoningTokens: u.CompletionTokensDetails.ReasoningTokens,
 		CacheReadTokens: u.PromptTokensDetails.CachedTokens,
 		TotalTokens:     total,
 	}

@@ -257,11 +257,19 @@ func (p *Provider) Stream(ctx context.Context, req providers.StreamRequest) (str
 		_ = upstream.Close()
 		return nil, normalizeOpenAIError(upstream.Err())
 	}
+	closeStream := upstream.Close
+	if cancel != nil {
+		closeStream = func() error {
+			err := upstream.Close()
+			cancel()
+			return err
+		}
+	}
 	return sdkstream.NewWithNormalize(
 		upstream.Next,
 		upstream.Current,
 		upstream.Err,
-		upstream.Close,
+		closeStream,
 		newOpenAIConsumer(),
 		normalizeOpenAIError,
 	), nil
@@ -382,11 +390,23 @@ func (p *Provider) sdkClient(apiKey, baseURL string, opts providers.StreamOption
 }
 
 func (p *Provider) sdkRequestOptions(opts providers.StreamOptions) []option.RequestOption {
-	out := make([]option.RequestOption, 0, len(opts.Headers)+1)
+	out := make([]option.RequestOption, 0, len(opts.Headers)+5)
 	for key, value := range opts.Headers {
 		if strings.TrimSpace(key) != "" && value != "" {
 			out = append(out, option.WithHeader(key, value))
 		}
+	}
+	if opts.RequestID != "" && !providers.HasHeader(opts.Headers, "X-Request-ID") {
+		out = append(out, option.WithHeader("X-Request-ID", opts.RequestID))
+	}
+	if opts.IdempotencyKey != "" && !providers.HasHeader(opts.Headers, "Idempotency-Key") {
+		out = append(out, option.WithHeader("Idempotency-Key", opts.IdempotencyKey))
+	}
+	if opts.RunID != "" && !providers.HasHeader(opts.Headers, "X-Y-Run-ID") {
+		out = append(out, option.WithHeader("X-Y-Run-ID", opts.RunID))
+	}
+	if opts.TurnID != "" && !providers.HasHeader(opts.Headers, "X-Y-Turn-ID") {
+		out = append(out, option.WithHeader("X-Y-Turn-ID", opts.TurnID))
 	}
 	if opts.Timeout > 0 {
 		out = append(out, option.WithRequestTimeout(opts.Timeout))
@@ -414,6 +434,7 @@ func (p *Provider) inspectSDKRequest(ctx context.Context, req providers.StreamRe
 			httpReq.Header.Set(key, value)
 		}
 	}
+	providers.ApplyRequestMetadata(httpReq.Header, req.Options)
 	p.inspector(httpReq)
 }
 
@@ -443,7 +464,7 @@ func buildSDKRequest(req providers.StreamRequest) (responses.ResponseNewParams, 
 			out.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
 		}
 	}
-	if req.Options.Reasoning != "" && req.Model.Reasoning {
+	if req.Options.Reasoning != "" && req.Options.Reasoning != ai.ThinkingOff && req.Model.Reasoning {
 		out.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(string(req.Options.Reasoning))}
 		out.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
 	}
@@ -591,6 +612,13 @@ func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
 		switch event.Type {
 		case "response.output_text.delta":
 			return []ai.Event{ai.TextDelta{ContentIndex: int(event.ContentIndex), Text: event.Delta}}
+		case "response.reasoning_summary_text.delta":
+			reasoning := event.AsResponseReasoningSummaryTextDelta()
+			return []ai.Event{ai.ThinkingDelta{ContentIndex: int(reasoning.OutputIndex), Thinking: reasoning.Delta}}
+		case "response.reasoning_summary.delta":
+			if event.Delta != "" {
+				return []ai.Event{ai.ThinkingDelta{ContentIndex: int(event.OutputIndex), Thinking: event.Delta}}
+			}
 		case "response.output_item.added":
 			if event.Item.Type == "function_call" {
 				call := event.Item.AsFunctionCall()
@@ -608,8 +636,9 @@ func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
 		case "response.completed", "response.incomplete":
 			response := event.Response
 			var events []ai.Event
+			providerMetadata, _ := json.Marshal(response.Metadata)
 			if response.Usage.TotalTokens != 0 || response.Usage.InputTokens != 0 || response.Usage.OutputTokens != 0 {
-				events = append(events, ai.UsageEvent{Usage: ai.Usage{InputTokens: response.Usage.InputTokens - response.Usage.InputTokensDetails.CachedTokens, OutputTokens: response.Usage.OutputTokens, CacheReadTokens: response.Usage.InputTokensDetails.CachedTokens, CacheWriteTokens: response.Usage.InputTokensDetails.CacheWriteTokens, TotalTokens: response.Usage.TotalTokens}})
+				events = append(events, ai.UsageEvent{Usage: ai.Usage{InputTokens: response.Usage.InputTokens - response.Usage.InputTokensDetails.CachedTokens, OutputTokens: response.Usage.OutputTokens, ReasoningTokens: response.Usage.OutputTokensDetails.ReasoningTokens, CacheReadTokens: response.Usage.InputTokensDetails.CachedTokens, CacheWriteTokens: response.Usage.InputTokensDetails.CacheWriteTokens, TotalTokens: response.Usage.TotalTokens}})
 			}
 			reason := ai.StopReasonStop
 			if state.sawTool {
@@ -618,7 +647,7 @@ func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
 			if event.Type == "response.incomplete" {
 				reason = ai.StopReasonLength
 			}
-			return append(events, ai.StopEvent{Reason: reason})
+			return append(events, ai.StopEvent{Reason: reason, ResponseID: response.ID, ProviderMetadata: providerMetadata})
 		case "response.failed", "error":
 			message := event.Message
 			if message == "" {

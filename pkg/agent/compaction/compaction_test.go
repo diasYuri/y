@@ -163,6 +163,35 @@ func TestCompactorMaybeCompactTriggersAboveThreshold(t *testing.T) {
 	}
 }
 
+func TestCompactorCompactReturnsRecoverableArchive(t *testing.T) {
+	transcript := make([]ai.Message, 0, 9)
+	for i := 0; i < 9; i++ {
+		message := ai.Message{ID: string(rune('a' + i)), Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: strings.Repeat("x", 400)}}}
+		if i == 1 {
+			message.ToolCalls = []ai.ToolCall{{ID: "call-1", Name: "read"}}
+		}
+		if i == 2 {
+			message.Role = ai.RoleToolResult
+			message.ToolResult = &ai.ToolResult{ToolCallID: "call-1", ToolName: "read"}
+		}
+		transcript = append(transcript, message)
+	}
+	result, err := NewCompactor().Compact(context.Background(), Request{
+		Transcript: transcript, Provider: &fakeSummarizer{summary: "summary"},
+		Model: ai.Model{ID: "test", ContextWindow: 1000}, Reason: ReasonOverflow, Force: true,
+		FileOperations: []FileOperation{{Path: "README.md", Action: "write"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || result.Metadata.Reason != ReasonOverflow || result.Metadata.TokensAfter >= result.Metadata.TokensBefore {
+		t.Fatalf("Compact() metadata = %#v", result.Metadata)
+	}
+	if len(result.ArchivedMessages) == 0 || len(result.Metadata.ToolCallIDs) != 1 || len(result.Metadata.ToolResultCallIDs) != 1 || len(result.Metadata.FileOperations) != 1 {
+		t.Fatalf("Compact() archive = %#v, metadata = %#v", result.ArchivedMessages, result.Metadata)
+	}
+}
+
 func TestCompactorMaybeCompactNilProvider(t *testing.T) {
 	var transcript []ai.Message
 	for i := 0; i < 9; i++ {

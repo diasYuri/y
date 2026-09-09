@@ -11,10 +11,11 @@ compiled with `feature_wasm_ext`.
 ## Layout
 
 - `cmd/y`: primary CLI entrypoint.
-- `internal`: non-public infrastructure (config, features, diagnostics,
-  policy, logging, storage, build info).
+- `internal`: non-public infrastructure (compiled features, diagnostics,
+  policy, logging, concrete storage, and build info).
 - `pkg`: public-style packages for agent, AI types, providers, tools,
-  WASM extensions, and the optional secondary products.
+  optional config/session contracts, WASM extensions, and the optional
+  secondary products.
 - `docs`: release, migration, baseline, performance, and feature docs.
 - `examples/extensions`: TinyGo WASM extension example.
 - `scripts`: measurement and build helper scripts.

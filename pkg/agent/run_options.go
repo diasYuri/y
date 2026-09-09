@@ -67,6 +67,18 @@ func overlayStreamOptions(base, top providers.StreamOptions) providers.StreamOpt
 	if top.SessionID != "" {
 		base.SessionID = top.SessionID
 	}
+	if top.RequestID != "" {
+		base.RequestID = top.RequestID
+	}
+	if top.IdempotencyKey != "" {
+		base.IdempotencyKey = top.IdempotencyKey
+	}
+	if top.RunID != "" {
+		base.RunID = top.RunID
+	}
+	if top.TurnID != "" {
+		base.TurnID = top.TurnID
+	}
 	if len(top.Headers) > 0 {
 		if base.Headers == nil {
 			base.Headers = make(map[string]string, len(top.Headers))

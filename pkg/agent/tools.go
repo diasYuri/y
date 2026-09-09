@@ -3,14 +3,18 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/policy"
+	"github.com/yuri/y/pkg/telemetry"
 	"github.com/yuri/y/pkg/tools"
 )
 
-func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) ([]ai.Message, error) {
+func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall, turn int) ([]ai.Message, error) {
 	a.mu.Lock()
 	registry := a.registry
 	workspaceRoot := a.workspaceRoot
@@ -23,11 +27,12 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 	}
 
 	a.setState(StateExecutingTools)
-	results := make([]ai.Message, len(toolCalls))
+	preparedCalls := a.ensureToolCallIDs(toolCalls, turn)
+	results := make([]ai.Message, len(preparedCalls))
 
 	anySequential := mode == ToolExecutionSequential
 	if !anySequential {
-		for _, toolCall := range toolCalls {
+		for _, toolCall := range preparedCalls {
 			if registry.GetExecutionMode(toolCall.Name) == tools.ExecutionSequential {
 				anySequential = true
 				break
@@ -36,10 +41,11 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 	}
 
 	if anySequential {
-		for i, toolCall := range toolCalls {
-			message, err := a.executeToolCall(ctx, registry, workspaceRoot, toolCall)
+		for i, toolCall := range preparedCalls {
+			message, err := a.executeToolCall(ctx, registry, workspaceRoot, toolCall, turn)
 			if err != nil {
-				return nil, err
+				a.markApprovalPending(err, toolCall, turn)
+				return results[:i], err
 			}
 			results[i] = message
 		}
@@ -51,8 +57,8 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 		semaphore = make(chan struct{}, concurrency)
 	}
 	var waitGroup sync.WaitGroup
-	errorsCh := make(chan error, len(toolCalls))
-	for i, toolCall := range toolCalls {
+	errorsCh := make(chan error, len(preparedCalls))
+	for i, toolCall := range preparedCalls {
 		waitGroup.Add(1)
 		go func(index int, call ai.ToolCall) {
 			defer waitGroup.Done()
@@ -66,8 +72,9 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 				defer func() { <-semaphore }()
 			}
 
-			message, err := a.executeToolCall(ctx, registry, workspaceRoot, call)
+			message, err := a.executeToolCall(ctx, registry, workspaceRoot, call, turn)
 			if err != nil {
+				a.markApprovalPending(err, call, turn)
 				errorsCh <- err
 				return
 			}
@@ -78,13 +85,29 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall) (
 	close(errorsCh)
 	for err := range errorsCh {
 		if err != nil {
-			return nil, err
+			return results, err
 		}
 	}
 	return results, nil
 }
 
-func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, workspaceRoot string, toolCall ai.ToolCall) (ai.Message, error) {
+func (a *Agent) ensureToolCallIDs(toolCalls []ai.ToolCall, turn int) []ai.ToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	a.mu.Lock()
+	runID := a.runID
+	a.mu.Unlock()
+	out := append([]ai.ToolCall(nil), toolCalls...)
+	for i := range out {
+		if out[i].ID == "" {
+			out[i].ID = fmt.Sprintf("%s-turn-%d-tool-%d", runID, turn, i)
+		}
+	}
+	return out
+}
+
+func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, workspaceRoot string, toolCall ai.ToolCall, turn int) (ai.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return ai.Message{}, err
 	}
@@ -93,7 +116,38 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	toolTimeout := a.toolTimeout
 	beforeToolCall := a.beforeToolCall
 	afterToolCall := a.afterToolCall
+	identity := a.policyIdentity
+	policyVersion := a.policyVersion
+	authorizationExpiresAt := a.authorizationExpiresAt
+	var approval *policy.ApprovalResolution
+	if a.approvalResolution != nil {
+		copy := *a.approvalResolution
+		approval = &copy
+	}
+	runID := a.runID
+	runNonce := a.runNonce
+	model := a.model
 	a.mu.Unlock()
+	toolCtx, toolSpan := a.startSpan(ctx, "tool.execution",
+		telemetry.Attribute{Key: "tool.name", Value: toolCall.Name},
+		telemetry.Attribute{Key: "tool.call_id", Value: toolCall.ID},
+	)
+	ctx = toolCtx
+	defer toolSpan.End()
+	toolStartedAt := time.Now()
+	toolRequestID := fmt.Sprintf("%s-run-%s-turn-%d-tool-%s", runID, runNonce, turn, toolCall.ID)
+	toolStartedEventKey := toolRequestID + ":started"
+	toolEndedEventKey := toolRequestID + ":ended"
+	for _, hooks := range a.hooksSnapshot() {
+		if hooks.BeforeTool != nil {
+			if err := hooks.BeforeTool(ctx, &toolCall); err != nil {
+				message := toolResultMessage(toolCall, tools.ToolResponse{}, err)
+				a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolEndedEventKey, Err: err})
+				a.emit(Event{Kind: EventToolCompleted, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolRequestID, Err: err})
+				return message, nil
+			}
+		}
+	}
 	if toolTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, toolTimeout)
@@ -103,25 +157,56 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	if beforeToolCall != nil {
 		if err := beforeToolCall(ctx, toolCall, nil); err != nil {
 			message := toolResultMessage(toolCall, tools.ToolResponse{}, err)
-			a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, ToolCall: toolCall, ToolResult: *message.ToolResult, Err: err})
+			a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolEndedEventKey, Err: err})
+			a.emit(Event{Kind: EventToolCompleted, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolRequestID, Err: err})
 			return message, nil
 		}
 	}
 
-	a.emit(Event{Kind: EventToolStarted, State: StateExecutingTools, ToolCall: toolCall})
+	a.emit(Event{Kind: EventToolStarted, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, IdempotencyKey: toolStartedEventKey})
 	response, err := registry.Handle(ctx, tools.ToolRequest{
-		ID:            toolCall.ID,
-		Name:          toolCall.Name,
-		Arguments:     toolCall.Arguments,
-		WorkspaceRoot: workspaceRoot,
+		ID:                     toolCall.ID,
+		Name:                   toolCall.Name,
+		Arguments:              toolCall.Arguments,
+		WorkspaceRoot:          workspaceRoot,
+		Identity:               identity,
+		RequestID:              toolRequestID,
+		RunID:                  runID,
+		TurnID:                 fmt.Sprintf("%s-turn-%d", runID, turn),
+		PolicyVersion:          policyVersion,
+		AuthorizationExpiresAt: authorizationExpiresAt,
+		Approval:               approval,
+		IdempotencyKey:         toolRequestID,
+		Progress: func(progress tools.ToolProgress) {
+			if progress.ToolCallID == "" {
+				progress.ToolCallID = toolCall.ID
+			}
+			if progress.ToolName == "" {
+				progress.ToolName = toolCall.Name
+			}
+			a.emit(Event{Kind: EventToolProgress, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolProgress: progress})
+		},
 	})
+	toolDuration := time.Since(toolStartedAt)
+	measurement := telemetry.Measurement{Dimensions: a.accountingDimensions(turn, model, toolCall.Name), ToolDuration: toolDuration}
 	if err != nil {
+		toolSpan.RecordError(err)
+	} else {
+		toolSpan.SetStatus(telemetry.StatusOK, "")
+	}
+	a.recordAccounting(measurement)
+	if err != nil {
+		var approvalErr *tools.ApprovalError
+		if errors.As(err, &approvalErr) {
+			return ai.Message{}, err
+		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			// A per-call timeout becomes a tool-result message so the model can
 			// decide whether to retry. Cancellation of the outer run still aborts.
 			if toolTimeout > 0 && (errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 				message := toolResultMessage(toolCall, tools.ToolResponse{}, err)
-				a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, ToolCall: toolCall, ToolResult: *message.ToolResult, Err: err})
+				a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolEndedEventKey, Err: err})
+				a.emit(Event{Kind: EventToolCompleted, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolRequestID, Err: err})
 				if afterToolCall != nil {
 					_ = afterToolCall(ctx, toolCall, message.ToolResult)
 				}
@@ -134,7 +219,8 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 			err = hookErr
 		}
 		message := toolResultMessage(toolCall, tools.ToolResponse{}, err)
-		a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, ToolCall: toolCall, ToolResult: *message.ToolResult, Err: err})
+		a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolEndedEventKey, Err: err})
+		a.emit(Event{Kind: EventToolCompleted, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolRequestID, Err: err})
 		if afterToolCall != nil {
 			_ = afterToolCall(ctx, toolCall, message.ToolResult)
 		}
@@ -142,11 +228,34 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	}
 
 	message := toolResultMessage(toolCall, response, nil)
-	a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, ToolCall: toolCall, ToolResult: *message.ToolResult})
+	for _, hooks := range a.hooksSnapshot() {
+		if hooks.AfterTool != nil {
+			if hookErr := hooks.AfterTool(ctx, toolCall, message.ToolResult); hookErr != nil {
+				message = toolResultMessage(toolCall, tools.ToolResponse{}, hookErr)
+				break
+			}
+		}
+	}
+	a.emit(Event{Kind: EventToolEnded, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolEndedEventKey})
+	a.emit(Event{Kind: EventToolCompleted, State: StateExecutingTools, Turn: turn, ToolCall: toolCall, ToolResult: *message.ToolResult, IdempotencyKey: toolRequestID})
 	if afterToolCall != nil {
 		_ = afterToolCall(ctx, toolCall, message.ToolResult)
 	}
 	return message, nil
+}
+
+func (a *Agent) markApprovalPending(err error, toolCall ai.ToolCall, turn int) {
+	var approvalErr *tools.ApprovalError
+	if !errors.As(err, &approvalErr) || approvalErr == nil {
+		return
+	}
+	request := approvalErr.Request
+	if request.ToolCallID == "" {
+		request.ToolCallID = toolCall.ID
+	}
+	a.mu.Lock()
+	a.pendingApproval = &PendingApproval{Request: request, ToolCall: toolCall, Turn: turn}
+	a.mu.Unlock()
 }
 
 func toolDescriptors(registry ToolRegistry) []ai.Tool {

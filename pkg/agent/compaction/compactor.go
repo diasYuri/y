@@ -27,6 +27,60 @@ type Compactor struct {
 	KeepLast int
 }
 
+// Reason identifies why a compaction was requested. Callers may force an
+// overflow compaction after a provider rejects an otherwise valid request.
+type Reason string
+
+const (
+	ReasonThreshold Reason = "threshold"
+	ReasonOverflow  Reason = "overflow"
+	ReasonManual    Reason = "manual"
+)
+
+// Request is a storage-neutral compaction request. Transcript may originate
+// from memory, an event-sourced tree, or any persisted session backend.
+type Request struct {
+	Transcript     []ai.Message
+	Provider       Summarizer
+	Model          ai.Model
+	Reason         Reason
+	Force          bool
+	BranchSummary  string
+	FileOperations []FileOperation
+}
+
+// FileOperation records a caller-observed file effect relevant to a summary.
+// Compaction never inspects a filesystem; adapters may attach these records
+// when tool execution makes that information available.
+type FileOperation struct {
+	Path   string `json:"path"`
+	Action string `json:"action"`
+}
+
+// Metadata makes a compaction replayable and auditable without imposing a
+// storage format. ArchivedMessages are the exact dropped prefix, including
+// tool calls and results; a store may keep them as a branch or cold archive.
+type Metadata struct {
+	Reason             Reason          `json:"reason"`
+	TokensBefore       int64           `json:"tokens_before"`
+	TokensAfter        int64           `json:"tokens_after"`
+	Boundary           int             `json:"boundary"`
+	ArchivedMessageIDs []string        `json:"archived_message_ids,omitempty"`
+	ToolCallIDs        []string        `json:"tool_call_ids,omitempty"`
+	ToolResultCallIDs  []string        `json:"tool_result_call_ids,omitempty"`
+	BranchSummary      string          `json:"branch_summary,omitempty"`
+	FileOperations     []FileOperation `json:"file_operations,omitempty"`
+}
+
+// Result contains both the live transcript and the information a durable
+// store needs to recover the exact pre-compaction history.
+type Result struct {
+	Messages         []ai.Message `json:"messages"`
+	ArchivedMessages []ai.Message `json:"archived_messages,omitempty"`
+	Applied          bool         `json:"applied"`
+	Metadata         Metadata     `json:"metadata"`
+}
+
 // DefaultThreshold is the default compaction threshold.
 const DefaultThreshold = 0.8
 
@@ -50,6 +104,22 @@ func (c *Compactor) MaybeCompact(
 	provider Summarizer,
 	model ai.Model,
 ) ([]ai.Message, bool, error) {
+	result, err := c.Compact(ctx, Request{Transcript: transcript, Provider: provider, Model: model, Reason: ReasonThreshold})
+	return result.Messages, result.Applied, err
+}
+
+// Compact applies a recoverable rewrite. It never mutates the supplied
+// transcript. When Force is true (normally after a ContextOverflowError), it
+// bypasses the threshold but still refuses to rewrite a transcript that is
+// already smaller than the verbatim retention window.
+func (c *Compactor) Compact(ctx context.Context, request Request) (Result, error) {
+	transcript := request.Transcript
+	result := Result{Messages: cloneMessages(transcript)}
+	reason := request.Reason
+	if reason == "" {
+		reason = ReasonThreshold
+	}
+	result.Metadata.Reason = reason
 	threshold := c.Threshold
 	if threshold <= 0 {
 		threshold = DefaultThreshold
@@ -59,25 +129,52 @@ func (c *Compactor) MaybeCompact(
 		keepLast = DefaultKeepLast
 	}
 
-	if model.ContextWindow <= 0 {
-		return append([]ai.Message(nil), transcript...), false, nil
+	if request.Model.ContextWindow <= 0 && !request.Force {
+		return result, nil
 	}
 
 	tokens := EstimateTranscriptTokens(transcript)
-	tokens = AdjustedEstimate(tokens, string(model.Provider))
+	tokens = AdjustedEstimate(tokens, string(request.Model.Provider))
+	result.Metadata.TokensBefore = tokens
 
-	limit := int64(float64(model.ContextWindow) * threshold)
-	if tokens <= limit {
-		return append([]ai.Message(nil), transcript...), false, nil
+	limit := int64(float64(request.Model.ContextWindow) * threshold)
+	if !request.Force && tokens <= limit {
+		return result, nil
+	}
+	if len(transcript) <= keepLast {
+		return result, nil
 	}
 
-	summary, err := c.summarize(ctx, provider, model, transcript)
+	summary, err := c.summarize(ctx, request.Provider, request.Model, transcript)
 	if err != nil {
-		return nil, false, fmt.Errorf("compaction summarization failed: %w", err)
+		return Result{}, fmt.Errorf("compaction summarization failed: %w", err)
 	}
 
-	rewritten := c.rewrite(transcript, summary, keepLast)
-	return rewritten, true, nil
+	rewritten, boundary := c.rewriteWithBoundary(transcript, summary, keepLast)
+	if len(rewritten) == len(transcript) {
+		return result, nil
+	}
+	result.Messages = rewritten
+	result.Applied = true
+	result.Metadata.Boundary = boundary
+	result.Metadata.TokensAfter = AdjustedEstimate(EstimateTranscriptTokens(rewritten), string(request.Model.Provider))
+	result.Metadata.BranchSummary = request.BranchSummary
+	result.Metadata.FileOperations = append([]FileOperation(nil), request.FileOperations...)
+	result.ArchivedMessages = cloneMessages(transcript[:boundary])
+	for _, message := range result.ArchivedMessages {
+		if message.ID != "" {
+			result.Metadata.ArchivedMessageIDs = append(result.Metadata.ArchivedMessageIDs, message.ID)
+		}
+		for _, call := range message.ToolCalls {
+			if call.ID != "" {
+				result.Metadata.ToolCallIDs = append(result.Metadata.ToolCallIDs, call.ID)
+			}
+		}
+		if message.ToolResult != nil && message.ToolResult.ToolCallID != "" {
+			result.Metadata.ToolResultCallIDs = append(result.Metadata.ToolResultCallIDs, message.ToolResult.ToolCallID)
+		}
+	}
+	return result, nil
 }
 
 func (c *Compactor) summarize(
@@ -142,8 +239,13 @@ func (c *Compactor) summarize(
 }
 
 func (c *Compactor) rewrite(transcript []ai.Message, summary string, keepLast int) []ai.Message {
+	result, _ := c.rewriteWithBoundary(transcript, summary, keepLast)
+	return result
+}
+
+func (c *Compactor) rewriteWithBoundary(transcript []ai.Message, summary string, keepLast int) ([]ai.Message, int) {
 	if len(transcript) == 0 {
-		return nil
+		return nil, 0
 	}
 
 	// Find the first non-system message (the first user message).
@@ -174,7 +276,7 @@ func (c *Compactor) rewrite(transcript []ai.Message, summary string, keepLast in
 	if keepLast >= len(transcript) {
 		// Not enough messages to drop any; just return the original
 		// transcript unchanged to avoid losing everything.
-		return append([]ai.Message(nil), transcript...)
+		return cloneMessages(transcript), 0
 	}
 
 	cutoff := len(transcript) - keepLast
@@ -185,7 +287,7 @@ func (c *Compactor) rewrite(transcript []ai.Message, summary string, keepLast in
 		result = append(result, cloneMessage(transcript[i]))
 	}
 
-	return result
+	return result, cutoff
 }
 
 func formatTranscript(messages []ai.Message) string {
@@ -219,9 +321,25 @@ func contentText(blocks []ai.ContentBlock) string {
 }
 
 func cloneMessage(msg ai.Message) ai.Message {
+	if msg.SchemaVersion == 0 {
+		msg.SchemaVersion = ai.CurrentSchemaVersion
+	}
 	cloned := ai.Message{
-		Role:      msg.Role,
-		Timestamp: msg.Timestamp,
+		SchemaVersion:    msg.SchemaVersion,
+		ID:               msg.ID,
+		Role:             msg.Role,
+		Timestamp:        msg.Timestamp,
+		ResponseID:       msg.ResponseID,
+		Provider:         msg.Provider,
+		ModelID:          msg.ModelID,
+		StopReason:       msg.StopReason,
+		Usage:            msg.Usage,
+		Details:          append([]byte(nil), msg.Details...),
+		ProviderMetadata: append([]byte(nil), msg.ProviderMetadata...),
+	}
+	if msg.Error != nil {
+		errorCopy := *msg.Error
+		cloned.Error = &errorCopy
 	}
 	if len(msg.Content) > 0 {
 		cloned.Content = make([]ai.ContentBlock, len(msg.Content))
@@ -233,6 +351,9 @@ func cloneMessage(msg ai.Message) ai.Message {
 			if len(cloned.Content[i].ProviderMetadata) > 0 {
 				cloned.Content[i].ProviderMetadata = append([]byte(nil), cloned.Content[i].ProviderMetadata...)
 			}
+			if len(cloned.Content[i].Details) > 0 {
+				cloned.Content[i].Details = append([]byte(nil), cloned.Content[i].Details...)
+			}
 		}
 	}
 	if len(msg.ToolCalls) > 0 {
@@ -242,6 +363,9 @@ func cloneMessage(msg ai.Message) ai.Message {
 			if len(cloned.ToolCalls[i].Arguments) > 0 {
 				cloned.ToolCalls[i].Arguments = append([]byte(nil), cloned.ToolCalls[i].Arguments...)
 			}
+			if len(cloned.ToolCalls[i].Details) > 0 {
+				cloned.ToolCalls[i].Details = append([]byte(nil), cloned.ToolCalls[i].Details...)
+			}
 		}
 	}
 	if msg.ToolResult != nil {
@@ -250,6 +374,12 @@ func cloneMessage(msg ai.Message) ai.Message {
 			ToolName:   msg.ToolResult.ToolName,
 			IsError:    msg.ToolResult.IsError,
 			Details:    append([]byte(nil), msg.ToolResult.Details...),
+			Usage:      msg.ToolResult.Usage,
+			Metadata:   append([]byte(nil), msg.ToolResult.Metadata...),
+			Logs:       append([]ai.LogEntry(nil), msg.ToolResult.Logs...),
+		}
+		for i := range cloned.ToolResult.Logs {
+			cloned.ToolResult.Logs[i].Details = append([]byte(nil), cloned.ToolResult.Logs[i].Details...)
 		}
 		if len(msg.ToolResult.Content) > 0 {
 			cloned.ToolResult.Content = make([]ai.ContentBlock, len(msg.ToolResult.Content))
@@ -261,8 +391,22 @@ func cloneMessage(msg ai.Message) ai.Message {
 				if len(cloned.ToolResult.Content[i].ProviderMetadata) > 0 {
 					cloned.ToolResult.Content[i].ProviderMetadata = append([]byte(nil), cloned.ToolResult.Content[i].ProviderMetadata...)
 				}
+				if len(cloned.ToolResult.Content[i].Details) > 0 {
+					cloned.ToolResult.Content[i].Details = append([]byte(nil), cloned.ToolResult.Content[i].Details...)
+				}
 			}
 		}
+	}
+	return cloned
+}
+
+func cloneMessages(messages []ai.Message) []ai.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	cloned := make([]ai.Message, len(messages))
+	for i, message := range messages {
+		cloned[i] = cloneMessage(message)
 	}
 	return cloned
 }

@@ -16,9 +16,20 @@ func toolResultMessage(call ai.ToolCall, response tools.ToolResponse, err error)
 		Content:    make([]ai.ContentBlock, 0, len(response.Content)),
 		IsError:    response.IsError || err != nil,
 		Details:    append([]byte(nil), response.Details...),
+		Metadata:   append([]byte(nil), response.Metadata...),
+	}
+	for _, log := range response.Logs {
+		result.Logs = append(result.Logs, ai.LogEntry{Timestamp: log.Timestamp, Level: log.Level, Message: log.Message, Details: append([]byte(nil), log.Details...)})
 	}
 	for _, block := range response.Content {
-		result.Content = append(result.Content, ai.ContentBlock{Type: ai.ContentText, Text: block.Text})
+		result.Content = append(result.Content, ai.ContentBlock{
+			Type:             ai.ContentType(block.Type),
+			Text:             block.Text,
+			ImageData:        append([]byte(nil), block.ImageData...),
+			ImageMIMEType:    block.ImageMIMEType,
+			Details:          append([]byte(nil), block.Details...),
+			ProviderMetadata: append([]byte(nil), block.ProviderMetadata...),
+		})
 	}
 
 	if err != nil {

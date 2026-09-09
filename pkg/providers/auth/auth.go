@@ -72,7 +72,7 @@ func (e *EnvSource) Get(names ...string) string {
 // knowledge by itself; callers should use Get directly with the provider's
 // list of env var names.
 func (e *EnvSource) Resolve(ctx context.Context, providerID string) (string, error) {
-	if err := ctx.Err(); err != nil {
+	if err := contextErr(ctx); err != nil {
 		return "", err
 	}
 	switch providerID {
@@ -98,7 +98,7 @@ type StaticSource struct {
 
 // Resolve implements Source.
 func (s *StaticSource) Resolve(ctx context.Context, providerID string) (string, error) {
-	if err := ctx.Err(); err != nil {
+	if err := contextErr(ctx); err != nil {
 		return "", err
 	}
 	return s.Key, nil

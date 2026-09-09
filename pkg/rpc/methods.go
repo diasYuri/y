@@ -116,6 +116,10 @@ func (s *Server) handleChat(ctx context.Context, params json.RawMessage) (any, *
 	}
 
 	session := s.getOrCreateSession(p.SessionID)
+	session.runMu.Lock()
+	defer session.runMu.Unlock()
+	ag := s.beginSessionRun(session)
+	defer s.finishSessionRun(session, ag)
 	sink := func(ev agent.Event) {
 		switch ev.Kind {
 		case agent.EventStateChanged:
@@ -134,7 +138,8 @@ func (s *Server) handleChat(ctx context.Context, params json.RawMessage) (any, *
 			s.events.Emit(newStreamEvent("completed", session.id, map[string]string{"state": string(ev.State)}))
 		}
 	}
-	ag := s.sessionAgent(session, sink)
+	unsubscribe := ag.Subscribe(sink)
+	defer unsubscribe()
 
 	s.events.Emit(newStreamEvent("chat_started", session.id, map[string]string{"message": p.Message}))
 
@@ -146,12 +151,6 @@ func (s *Server) handleChat(ctx context.Context, params json.RawMessage) (any, *
 	}
 
 	s.events.Emit(newStreamEvent("chat_completed", session.id, map[string]any{"turns": result.Turns, "state": string(result.State)}))
-
-	// Update session transcript from agent.
-	session.mu.Lock()
-	session.transcript = ag.Transcript()
-	session.updatedAt = time.Now()
-	session.mu.Unlock()
 
 	// Extract assistant response text.
 	var responseText string
@@ -210,16 +209,24 @@ func (s *Server) handleContinue(ctx context.Context, params json.RawMessage) (an
 	}
 
 	session := s.getOrCreateSession(p.SessionID)
-	if len(session.transcript) == 0 {
+	session.runMu.Lock()
+	defer session.runMu.Unlock()
+	session.mu.RLock()
+	transcriptEmpty := len(session.transcript) == 0
+	session.mu.RUnlock()
+	if transcriptEmpty {
 		return nil, newError(ErrInvalidRequest, "no transcript to continue from")
 	}
+	ag := s.beginSessionRun(session)
+	defer s.finishSessionRun(session, ag)
 
 	sink := func(ev agent.Event) {
 		if ev.Kind == agent.EventTextDelta {
 			s.events.Emit(newStreamEvent("text_delta", session.id, map[string]string{"text": ev.TextDelta}))
 		}
 	}
-	ag := s.sessionAgent(session, sink)
+	unsubscribe := ag.Subscribe(sink)
+	defer unsubscribe()
 
 	s.events.Emit(newStreamEvent("continue_started", session.id, nil))
 
@@ -230,11 +237,6 @@ func (s *Server) handleContinue(ctx context.Context, params json.RawMessage) (an
 	}
 
 	s.events.Emit(newStreamEvent("continue_completed", session.id, map[string]any{"turns": result.Turns}))
-
-	session.mu.Lock()
-	session.transcript = ag.Transcript()
-	session.updatedAt = time.Now()
-	session.mu.Unlock()
 
 	var responseText string
 	for _, msg := range result.Messages {
@@ -266,18 +268,60 @@ func (s *Server) handleSteer(params json.RawMessage) (any, *ErrorObj) {
 	}
 
 	session := s.getOrCreateSession(p.SessionID)
-
-	// For now, append the steering message to the transcript so the next
-	// chat/continue will pick it up. Full mid-run steering requires a
-	// persistent agent instance per session.
-	session.mu.Lock()
-	session.transcript = append(session.transcript, ai.Message{
+	message := ai.Message{
 		Role:      ai.RoleUser,
 		Content:   []ai.ContentBlock{{Type: ai.ContentText, Text: p.Message}},
-		Timestamp: time.Now(),
-	})
-	session.updatedAt = time.Now()
-	session.mu.Unlock()
+		Timestamp: time.Now().UTC(),
+	}
+	session.mu.RLock()
+	ag := session.runtime
+	running := session.running
+	session.mu.RUnlock()
+	if ag == nil {
+		ag = s.sessionAgent(session)
+	}
+	active := func() bool {
+		switch ag.State() {
+		case agent.StateSelectingModel, agent.StateRequestingModel, agent.StateStreaming, agent.StateExecutingTools:
+			return true
+		default:
+			return false
+		}
+	}
+	if running || active() {
+		// A live agent consumes steering at the next safe turn boundary.
+		ag.Steer(message)
+	} else {
+		// Serialize the idle/reset path with startup. If chat began after the
+		// first state check, its running marker is visible before Reset runs.
+		session.runMu.Lock()
+		session.mu.RLock()
+		running = session.running
+		ag = session.runtime
+		session.mu.RUnlock()
+		if ag == nil {
+			ag = s.sessionAgent(session)
+		}
+		if running || func() bool {
+			switch ag.State() {
+			case agent.StateSelectingModel, agent.StateRequestingModel, agent.StateStreaming, agent.StateExecutingTools:
+				return true
+			default:
+				return false
+			}
+		}() {
+			ag.Steer(message)
+		} else {
+			messages := ag.Transcript()
+			messages = append(messages, message)
+			ag.Reset(messages...)
+			session.mu.Lock()
+			session.transcript = append([]ai.Message(nil), messages...)
+			session.updatedAt = time.Now().UTC()
+			session.mu.Unlock()
+		}
+		session.runMu.Unlock()
+	}
 
 	s.events.Emit(newStreamEvent("steer_queued", session.id, map[string]string{"message": p.Message}))
 
@@ -293,10 +337,13 @@ func (s *Server) handleAbort(params json.RawMessage) (any, *ErrorObj) {
 	}
 
 	session := s.getOrCreateSession(p.SessionID)
-
-	// Abort requires a persistent agent instance. Since we rebuild the agent
-	// per call, we emit an event but cannot interrupt an in-flight request.
-	// Future improvement: keep a persistent agent per session with Abort support.
+	session.mu.RLock()
+	ag := session.runtime
+	session.mu.RUnlock()
+	if ag == nil {
+		return map[string]string{"status": "requested", "session_id": session.id}, nil
+	}
+	ag.Abort()
 	s.events.Emit(newStreamEvent("abort_requested", session.id, nil))
 
 	return map[string]string{"status": "requested", "session_id": session.id}, nil
@@ -330,6 +377,11 @@ func (s *Server) handleClear(params json.RawMessage) (any, *ErrorObj) {
 		}
 	}
 	session := s.getOrCreateSession(p.SessionID)
+	session.runMu.Lock()
+	defer session.runMu.Unlock()
+	if session.runtime != nil {
+		session.runtime.Reset()
+	}
 	session.mu.Lock()
 	session.transcript = session.transcript[:0]
 	session.updatedAt = time.Now()

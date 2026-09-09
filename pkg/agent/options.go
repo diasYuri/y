@@ -5,7 +5,10 @@ import (
 
 	"github.com/yuri/y/pkg/agent/compaction"
 	"github.com/yuri/y/pkg/ai"
+	ycontext "github.com/yuri/y/pkg/context"
+	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/providers"
+	"github.com/yuri/y/pkg/telemetry"
 )
 
 // WithModel sets the provider model used for future runs.
@@ -13,6 +16,21 @@ func WithModel(model ai.Model) Option {
 	return func(a *Agent) {
 		a.model = model
 	}
+}
+
+// WithRunID sets the durable execution ID used in emitted events and
+// distributed snapshots. If omitted, Agent generates one when its first run
+// starts.
+func WithRunID(runID string) Option {
+	return func(a *Agent) { a.runID = runID }
+}
+
+// WithRunNonce pins the execution nonce used to derive tool idempotency keys.
+// Distributed runners use it to preserve the same operation identity while
+// recovering a run on another worker. Ordinary persistent Agents generate a
+// fresh nonce for each new run automatically.
+func WithRunNonce(nonce string) Option {
+	return func(a *Agent) { a.runNonce = nonce }
 }
 
 // WithSystemPrompt sets the system prompt forwarded to the provider.
@@ -27,6 +45,78 @@ func WithWorkspaceRoot(workspaceRoot string) Option {
 	return func(a *Agent) {
 		a.workspaceRoot = workspaceRoot
 	}
+}
+
+// WithContextResolver supplies request context from one or more replaceable
+// sources. The resolved prompt is recomputed before each provider request.
+func WithContextResolver(resolver *ycontext.Resolver) Option {
+	return func(a *Agent) { a.contextResolver = resolver }
+}
+
+// WithContextRequest supplies tenant, project, session and token-budget
+// identity to the context resolver.
+func WithContextRequest(request ycontext.Request) Option {
+	return func(a *Agent) { a.contextRequest = request }
+}
+
+// WithContextIdentity overlays request identity on an existing context
+// request, preserving source-specific prompt and budget fields.
+func WithContextIdentity(tenantID, workspaceID, projectID, sessionID, requestID string) Option {
+	return func(a *Agent) {
+		if tenantID != "" {
+			a.contextRequest.TenantID = tenantID
+		}
+		if workspaceID != "" {
+			a.contextRequest.WorkspaceID = workspaceID
+		}
+		if projectID != "" {
+			a.contextRequest.ProjectID = projectID
+		}
+		if sessionID != "" {
+			a.contextRequest.SessionID = sessionID
+		}
+		if requestID != "" {
+			a.contextRequest.RequestID = requestID
+		}
+	}
+}
+
+// WithPolicyIdentity binds caller, tenant and capability identity to tool
+// requests. It is persisted in neither provider snapshots nor event payloads
+// beyond the non-secret identity fields.
+func WithPolicyIdentity(identity policy.Identity) Option {
+	identity.Capabilities = append([]string(nil), identity.Capabilities...)
+	return func(a *Agent) { a.policyIdentity = identity }
+}
+
+// WithPolicyVersion records the policy contract used for authorization.
+func WithPolicyVersion(version string) Option {
+	return func(a *Agent) { a.policyVersion = version }
+}
+
+// WithAuthorizationExpiry bounds authorization for subsequent tool calls.
+func WithAuthorizationExpiry(expiresAt time.Time) Option {
+	return func(a *Agent) { a.authorizationExpiresAt = expiresAt }
+}
+
+// WithApprovalResolution supplies the durable decision used to resume a
+// pending approval after a worker handoff.
+func WithApprovalResolution(resolution *policy.ApprovalResolution) Option {
+	return func(a *Agent) {
+		if resolution == nil {
+			a.approvalResolution = nil
+			return
+		}
+		copy := *resolution
+		a.approvalResolution = &copy
+	}
+}
+
+// WithIdempotencyKey identifies a logical run request. The key is never
+// included in a snapshot's secret-bearing provider options and is combined
+// with each turn when constructing provider requests.
+func WithIdempotencyKey(key string) Option {
+	return func(a *Agent) { a.idempotencyKey = key }
 }
 
 // WithTranscript seeds the transcript used for the next run.
@@ -209,4 +299,22 @@ func WithUsageObserver(obs UsageObserver) Option {
 	return func(a *Agent) {
 		a.usageObserver = obs
 	}
+}
+
+// WithTracer attaches a transport-neutral tracer to run, provider, tool and
+// compaction work. A nil tracer disables tracing.
+func WithTracer(tracer telemetry.Tracer) Option {
+	return func(a *Agent) { a.tracer = tracer }
+}
+
+// WithAccounting records execution metrics by run, turn, session, provider,
+// model, tool and tenant. The collector remains optional for ephemeral runs.
+func WithAccounting(accounting *telemetry.Accounting) Option {
+	return func(a *Agent) { a.accounting = accounting }
+}
+
+// WithRuntimeHooks registers lifecycle hooks, resource providers and request
+// tool providers. Hooks are appended in option order.
+func WithRuntimeHooks(hooks RuntimeHooks) Option {
+	return func(a *Agent) { a.runtimeHooks = append(a.runtimeHooks, hooks) }
 }

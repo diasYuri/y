@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
@@ -59,9 +60,9 @@ type EventStream interface {
 
 // StreamRequest is the provider-neutral request shape consumed by Provider.
 type StreamRequest struct {
-	Model   ai.Model
-	Context ai.Context
-	Options StreamOptions
+	Model   ai.Model      `json:"model"`
+	Context ai.Context    `json:"context"`
+	Options StreamOptions `json:"options"`
 }
 
 // StreamOptions contains cross-provider options.
@@ -75,24 +76,61 @@ type StreamRequest struct {
 // Provider-specific knobs may be passed via Extras (typed) or the deprecated
 // Metadata field.
 type StreamOptions struct {
-	Temperature     *float64
-	MaxTokens       int64
-	APIKey          string
-	Transport       ai.Transport
-	CacheRetention  ai.CacheRetention
-	SessionID       string
-	Headers         map[string]string
-	Timeout         time.Duration
-	MaxRetries      int
-	MaxRetryDelay   time.Duration
-	Reasoning       ai.ThinkingLevel
-	ThinkingBudgets map[ai.ThinkingLevel]int64
+	Temperature    *float64          `json:"temperature,omitempty"`
+	MaxTokens      int64             `json:"max_tokens,omitempty"`
+	APIKey         string            `json:"-"`
+	Transport      ai.Transport      `json:"transport,omitempty"`
+	CacheRetention ai.CacheRetention `json:"cache_retention,omitempty"`
+	SessionID      string            `json:"session_id,omitempty"`
+	// RequestID and IdempotencyKey identify this provider operation across
+	// retries and workers. Providers should forward them as transport headers
+	// when their protocol supports it.
+	RequestID       string                     `json:"request_id,omitempty"`
+	IdempotencyKey  string                     `json:"idempotency_key,omitempty"`
+	RunID           string                     `json:"run_id,omitempty"`
+	TurnID          string                     `json:"turn_id,omitempty"`
+	Headers         map[string]string          `json:"headers,omitempty"`
+	Timeout         time.Duration              `json:"timeout,omitempty"`
+	MaxRetries      int                        `json:"max_retries,omitempty"`
+	MaxRetryDelay   time.Duration              `json:"max_retry_delay,omitempty"`
+	Reasoning       ai.ThinkingLevel           `json:"reasoning,omitempty"`
+	ThinkingBudgets map[ai.ThinkingLevel]int64 `json:"thinking_budgets,omitempty"`
 	// Extras holds typed provider-specific extension keys. Prefer this over
 	// Metadata. Use WithProviderExtra to construct.
-	Extras ProviderExtras
+	Extras ProviderExtras `json:"extras,omitempty"`
 	// Deprecated: Metadata is retained for backwards compatibility with callers
 	// that pass a raw JSON blob. New code should use Extras / WithProviderExtra.
-	Metadata json.RawMessage
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+}
+
+// ApplyRequestMetadata adds transport-neutral correlation headers when the
+// underlying protocol is HTTP. Explicit entries in StreamOptions.Headers win
+// over these defaults. Providers should call this after constructing their
+// request and before invoking request inspectors.
+func ApplyRequestMetadata(headers http.Header, opts StreamOptions) {
+	if headers == nil {
+		return
+	}
+	setIfAbsent := func(name, value string) {
+		if value != "" && headers.Get(name) == "" {
+			headers.Set(name, value)
+		}
+	}
+	setIfAbsent("X-Request-ID", opts.RequestID)
+	setIfAbsent("Idempotency-Key", opts.IdempotencyKey)
+	setIfAbsent("X-Y-Run-ID", opts.RunID)
+	setIfAbsent("X-Y-Turn-ID", opts.TurnID)
+}
+
+// HasHeader reports whether an explicit header is present, using HTTP's
+// case-insensitive header-name semantics for plain option maps.
+func HasHeader(headers map[string]string, name string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProviderExtras is a typed bag of provider-specific extension values. It is

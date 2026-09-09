@@ -180,6 +180,66 @@ func TestProviderModelsUsesOfficialSDK(t *testing.T) {
 	}
 }
 
+func TestProviderPreservesExplicitCorrelationHeaders(t *testing.T) {
+	client := newMockClient(func(r *http.Request) (*http.Response, error) {
+		if got := r.Header.Get("X-Request-ID"); got != "caller-request" {
+			t.Fatalf("X-Request-ID = %q, want caller-request", got)
+		}
+		if got := r.Header.Get("Idempotency-Key"); got != "caller-idempotency" {
+			t.Fatalf("Idempotency-Key = %q, want caller-idempotency", got)
+		}
+		if got := r.Header.Get("X-Y-Run-ID"); got != "run-1" {
+			t.Fatalf("X-Y-Run-ID = %q, want run-1", got)
+		}
+		if got := r.Header.Get("X-Y-Turn-ID"); got != "turn-1" {
+			t.Fatalf("X-Y-Turn-ID = %q, want turn-1", got)
+		}
+		return sseResponse(`{"type":"message_stop"}`), nil
+	})
+	provider := New(WithBaseURL("http://example.invalid"), WithAPIKey("test-key"), WithHTTPClient(client))
+	stream, err := provider.Stream(context.Background(), providers.StreamRequest{
+		Model: ai.Model{ID: "claude-test", BaseURL: "http://example.invalid"},
+		Context: ai.Context{Messages: []ai.Message{{
+			Role: ai.RoleUser, Content: []ai.ContentBlock{{Type: ai.ContentText, Text: "hello"}},
+		}}},
+		Options: providers.StreamOptions{
+			RequestID: "generated-request", IdempotencyKey: "generated-idempotency",
+			RunID: "run-1", TurnID: "turn-1",
+			Headers: map[string]string{"x-request-id": "caller-request", "IDEMPOTENCY-KEY": "caller-idempotency"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	defer stream.Close()
+	for {
+		_, err := stream.Next(context.Background())
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+	}
+}
+
+func TestBuildSDKMessageRequestTreatsThinkingOffAsDisabled(t *testing.T) {
+	payload, err := buildSDKMessageRequest(providers.StreamRequest{
+		Model:   ai.Model{ID: "claude-test", Reasoning: true},
+		Options: providers.StreamOptions{Reasoning: ai.ThinkingOff},
+	})
+	if err != nil {
+		t.Fatalf("buildSDKMessageRequest: %v", err)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if strings.Contains(string(raw), `"thinking"`) {
+		t.Fatalf("request enabled thinking for ThinkingOff: %s", raw)
+	}
+}
+
 func TestCountTokensUsesOfficialSDK(t *testing.T) {
 	client := newMockClient(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/messages/count_tokens" {

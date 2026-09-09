@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/yuri/y/pkg/policy"
 )
@@ -26,13 +27,18 @@ const (
 type ContentType string
 
 const (
-	ContentText ContentType = "text"
+	ContentText  ContentType = "text"
+	ContentImage ContentType = "image"
 )
 
 // ContentBlock is a structured tool response block.
 type ContentBlock struct {
-	Type ContentType `json:"type"`
-	Text string      `json:"text,omitempty"`
+	Type             ContentType     `json:"type"`
+	Text             string          `json:"text,omitempty"`
+	ImageData        []byte          `json:"image_data,omitempty"`
+	ImageMIMEType    string          `json:"image_mime_type,omitempty"`
+	Details          json.RawMessage `json:"details,omitempty"`
+	ProviderMetadata json.RawMessage `json:"provider_metadata,omitempty"`
 }
 
 // ToolLimits declares input, output, and tool-specific byte limits.
@@ -69,18 +75,49 @@ type ToolDescriptor struct {
 
 // ToolRequest is the normalized invocation passed to a tool handler.
 type ToolRequest struct {
-	ID            string                     `json:"id,omitempty"`
-	Name          string                     `json:"name"`
-	Arguments     json.RawMessage            `json:"arguments,omitempty"`
-	WorkspaceRoot string                     `json:"workspace_root,omitempty"`
-	Approval      *policy.ApprovalResolution `json:"approval,omitempty"`
+	ID                     string                     `json:"id,omitempty"`
+	Name                   string                     `json:"name"`
+	Arguments              json.RawMessage            `json:"arguments,omitempty"`
+	WorkspaceRoot          string                     `json:"workspace_root,omitempty"`
+	Approval               *policy.ApprovalResolution `json:"approval,omitempty"`
+	Identity               policy.Identity            `json:"identity,omitempty"`
+	RequestID              string                     `json:"request_id,omitempty"`
+	RunID                  string                     `json:"run_id,omitempty"`
+	TurnID                 string                     `json:"turn_id,omitempty"`
+	PolicyVersion          string                     `json:"policy_version,omitempty"`
+	AuthorizationExpiresAt time.Time                  `json:"authorization_expires_at,omitempty"`
+	IdempotencyKey         string                     `json:"idempotency_key,omitempty"`
+	RequiredCapabilities   []Capability               `json:"required_capabilities,omitempty"`
+	// Progress receives best-effort incremental updates. It is intentionally
+	// process-local and omitted from JSON when the request crosses a transport.
+	Progress func(ToolProgress) `json:"-"`
+}
+
+// ToolProgress is an incremental, transport-neutral tool update.
+type ToolProgress struct {
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	ToolName   string          `json:"tool_name,omitempty"`
+	Stream     string          `json:"stream,omitempty"`
+	Text       string          `json:"text,omitempty"`
+	Details    json.RawMessage `json:"details,omitempty"`
+	Done       bool            `json:"done,omitempty"`
 }
 
 // ToolResponse is the structured result returned by a tool.
 type ToolResponse struct {
-	Content []ContentBlock  `json:"content,omitempty"`
-	IsError bool            `json:"is_error,omitempty"`
-	Details json.RawMessage `json:"details,omitempty"`
+	Content  []ContentBlock  `json:"content,omitempty"`
+	IsError  bool            `json:"is_error,omitempty"`
+	Details  json.RawMessage `json:"details,omitempty"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
+	Logs     []LogEntry      `json:"logs,omitempty"`
+}
+
+// LogEntry is an optional structured diagnostic emitted during execution.
+type LogEntry struct {
+	Timestamp time.Time       `json:"timestamp"`
+	Level     string          `json:"level,omitempty"`
+	Message   string          `json:"message"`
+	Details   json.RawMessage `json:"details,omitempty"`
 }
 
 // ToolHandler executes a tool call.
@@ -96,6 +133,34 @@ func (f ToolHandlerFunc) Handle(ctx context.Context, req ToolRequest) (ToolRespo
 	return f(ctx, req)
 }
 
+// Executor is a replaceable execution backend. Local handlers, remote workers
+// and sandboxes can all implement it while preserving the same cancellation,
+// idempotency and progress fields in ToolRequest.
+type Executor interface {
+	Execute(context.Context, ToolRequest) (ToolResponse, error)
+}
+
+// ExecutorFunc adapts a function to Executor.
+type ExecutorFunc func(context.Context, ToolRequest) (ToolResponse, error)
+
+// Execute calls f.
+func (f ExecutorFunc) Execute(ctx context.Context, req ToolRequest) (ToolResponse, error) {
+	return f(ctx, req)
+}
+
+// ExecutorHandler adapts an execution backend into a registry handler. It is
+// the standard path for remote execution: transport code implements Executor,
+// then the local registry still enforces policy and idempotency before it runs.
+type ExecutorHandler struct{ Executor Executor }
+
+// Handle delegates to the configured backend.
+func (h ExecutorHandler) Handle(ctx context.Context, req ToolRequest) (ToolResponse, error) {
+	if h.Executor == nil {
+		return ToolResponse{}, toolError("executor_unavailable", "tool executor is nil", ErrInvalidTool)
+	}
+	return h.Executor.Execute(ctx, req)
+}
+
 var (
 	ErrToolNotFound          = errors.New("tool not found")
 	ErrToolAlreadyRegistered = errors.New("tool already registered")
@@ -104,6 +169,30 @@ var (
 	ErrPolicyDenied          = errors.New("tool denied by policy")
 	ErrApprovalRequired      = errors.New("tool requires approval")
 )
+
+// ApprovalError carries the exact authorization request needed to resume a
+// blocked tool call on another worker.
+type ApprovalError struct {
+	Request policy.ApprovalRequest
+	Cause   error
+}
+
+func (e *ApprovalError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Request.Reason != "" {
+		return e.Request.Reason
+	}
+	return ErrApprovalRequired.Error()
+}
+
+func (e *ApprovalError) Unwrap() error {
+	if e == nil || e.Cause == nil {
+		return ErrApprovalRequired
+	}
+	return e.Cause
+}
 
 // Error categorizes a tool failure while preserving its cause.
 type Error struct {

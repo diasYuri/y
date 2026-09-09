@@ -52,6 +52,20 @@ type ToolResponse struct {
 	Content []ContentBlock
 }
 
+// RuntimeRequest dispatches a lifecycle, event, or hook envelope to an
+// extension. It keeps runtime integration out of the tool-only API while
+// retaining the same capability, timeout, and trap handling as CallTool.
+type RuntimeRequest struct {
+	Kind      EnvelopeKind
+	Payload   json.RawMessage
+	RequestID string
+}
+
+// RuntimeResponse preserves the guest payload for the runtime hook that
+// initiated the dispatch. Empty payload is a successful no-op, which makes
+// v1 extensions forward-compatible with runtime notifications.
+type RuntimeResponse struct{ Payload json.RawMessage }
+
 // HostInvoker is the optional interface a host registers to service guest
 // tool_invoke host calls. The Manager forwards capability-checked
 // tool_invoke envelopes to the invoker so y-side tools can be reused by
@@ -106,6 +120,9 @@ type Manager interface {
 	// returns the structured response. Loads the module on demand and
 	// enforces capability/limit checks.
 	CallTool(ctx context.Context, id string, req ToolRequest) (ToolResponse, error)
+	// CallRuntime dispatches optional lifecycle/event/hook envelopes through
+	// the established guest handle export.
+	CallRuntime(ctx context.Context, id string, req RuntimeRequest) (RuntimeResponse, error)
 	// Close releases all resources held by the Manager. It should be called
 	// during shutdown.
 	Close(ctx context.Context) error

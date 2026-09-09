@@ -55,4 +55,11 @@ func (m *disabledManager) CallTool(ctx context.Context, id string, _ ToolRequest
 	return ToolResponse{}, ErrHostUnavailable
 }
 
+func (m *disabledManager) CallRuntime(ctx context.Context, id string, _ RuntimeRequest) (RuntimeResponse, error) {
+	if _, ok := m.state.lookup(id); !ok {
+		return RuntimeResponse{}, fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
+	}
+	return RuntimeResponse{}, ErrHostUnavailable
+}
+
 func (m *disabledManager) Close(ctx context.Context) error { return nil }

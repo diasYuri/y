@@ -10,6 +10,7 @@ import (
 func addUsage(dst, src ai.Usage) ai.Usage {
 	dst.InputTokens += src.InputTokens
 	dst.OutputTokens += src.OutputTokens
+	dst.ReasoningTokens += src.ReasoningTokens
 	dst.CacheReadTokens += src.CacheReadTokens
 	dst.CacheWriteTokens += src.CacheWriteTokens
 	dst.TotalTokens += src.TotalTokens
@@ -45,9 +46,25 @@ func cloneMessages(messages []ai.Message) []ai.Message {
 }
 
 func cloneMessage(message ai.Message) ai.Message {
+	if message.SchemaVersion == 0 {
+		message.SchemaVersion = ai.CurrentSchemaVersion
+	}
 	cloned := ai.Message{
-		Role:      message.Role,
-		Timestamp: message.Timestamp,
+		SchemaVersion:    message.SchemaVersion,
+		ID:               message.ID,
+		Role:             message.Role,
+		Timestamp:        message.Timestamp,
+		ResponseID:       message.ResponseID,
+		Provider:         message.Provider,
+		ModelID:          message.ModelID,
+		StopReason:       message.StopReason,
+		Usage:            message.Usage,
+		Details:          append([]byte(nil), message.Details...),
+		ProviderMetadata: append([]byte(nil), message.ProviderMetadata...),
+	}
+	if message.Error != nil {
+		errorCopy := *message.Error
+		cloned.Error = &errorCopy
 	}
 	if len(message.Content) > 0 {
 		cloned.Content = make([]ai.ContentBlock, len(message.Content))
@@ -59,6 +76,9 @@ func cloneMessage(message ai.Message) ai.Message {
 			if len(cloned.Content[i].ProviderMetadata) > 0 {
 				cloned.Content[i].ProviderMetadata = append([]byte(nil), cloned.Content[i].ProviderMetadata...)
 			}
+			if len(cloned.Content[i].Details) > 0 {
+				cloned.Content[i].Details = append([]byte(nil), cloned.Content[i].Details...)
+			}
 		}
 	}
 	if len(message.ToolCalls) > 0 {
@@ -68,6 +88,9 @@ func cloneMessage(message ai.Message) ai.Message {
 			if len(cloned.ToolCalls[i].Arguments) > 0 {
 				cloned.ToolCalls[i].Arguments = append([]byte(nil), cloned.ToolCalls[i].Arguments...)
 			}
+			if len(cloned.ToolCalls[i].Details) > 0 {
+				cloned.ToolCalls[i].Details = append([]byte(nil), cloned.ToolCalls[i].Details...)
+			}
 		}
 	}
 	if message.ToolResult != nil {
@@ -76,6 +99,12 @@ func cloneMessage(message ai.Message) ai.Message {
 			ToolName:   message.ToolResult.ToolName,
 			IsError:    message.ToolResult.IsError,
 			Details:    append([]byte(nil), message.ToolResult.Details...),
+			Usage:      message.ToolResult.Usage,
+			Metadata:   append([]byte(nil), message.ToolResult.Metadata...),
+			Logs:       append([]ai.LogEntry(nil), message.ToolResult.Logs...),
+		}
+		for i := range cloned.ToolResult.Logs {
+			cloned.ToolResult.Logs[i].Details = append([]byte(nil), cloned.ToolResult.Logs[i].Details...)
 		}
 		if len(message.ToolResult.Content) > 0 {
 			cloned.ToolResult.Content = make([]ai.ContentBlock, len(message.ToolResult.Content))
@@ -86,6 +115,9 @@ func cloneMessage(message ai.Message) ai.Message {
 				}
 				if len(cloned.ToolResult.Content[i].ProviderMetadata) > 0 {
 					cloned.ToolResult.Content[i].ProviderMetadata = append([]byte(nil), cloned.ToolResult.Content[i].ProviderMetadata...)
+				}
+				if len(cloned.ToolResult.Content[i].Details) > 0 {
+					cloned.ToolResult.Content[i].Details = append([]byte(nil), cloned.ToolResult.Content[i].Details...)
 				}
 			}
 		}

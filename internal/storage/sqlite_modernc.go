@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yuri/y/pkg/ai"
+	publicsession "github.com/yuri/y/pkg/session"
 	_ "modernc.org/sqlite"
 )
 
@@ -22,6 +23,8 @@ type SQLiteStore struct {
 	dbPath string
 	now    func() time.Time
 }
+
+var _ publicsession.Store = (*SQLiteStore)(nil)
 
 // NewSQLiteStore creates a SQLite-backed session store.
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
@@ -248,9 +251,19 @@ func (s *SQLiteStore) ReadTranscript(ctx context.Context, sessionID string) ([]a
 			return nil, err
 		}
 		msg := ai.Message{
-			Role:      ai.Role(role),
-			Timestamp: sm.Timestamp,
-			Content:   make([]ai.ContentBlock, len(sm.Content)),
+			SchemaVersion:    sm.SchemaVersion,
+			ID:               sm.ID,
+			Role:             ai.Role(role),
+			Timestamp:        sm.Timestamp,
+			ResponseID:       sm.ResponseID,
+			Provider:         ai.ProviderID(sm.Provider),
+			ModelID:          sm.ModelID,
+			StopReason:       ai.StopReason(sm.StopReason),
+			Usage:            sm.Usage,
+			ProviderMetadata: append(json.RawMessage(nil), sm.ProviderMetadata...),
+			Details:          append(json.RawMessage(nil), sm.Details...),
+			Error:            sm.Error,
+			Content:          make([]ai.ContentBlock, len(sm.Content)),
 		}
 		for i, cb := range sm.Content {
 			msg.Content[i] = ai.ContentBlock{
@@ -261,6 +274,7 @@ func (s *SQLiteStore) ReadTranscript(ctx context.Context, sessionID string) ([]a
 				Signature:        cb.Signature,
 				ImageData:        cb.ImageData,
 				ImageMIMEType:    cb.ImageMIMEType,
+				Details:          cb.Details,
 				ProviderMetadata: cb.ProviderMetadata,
 			}
 		}

@@ -11,7 +11,38 @@ import (
 
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/providers"
+	"google.golang.org/genai"
 )
+
+func TestGoogleConsumerPreservesThoughtsImagesAndToolSignatures(t *testing.T) {
+	events := newGoogleConsumer()(&genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{Parts: []*genai.Part{
+				{Text: "private", Thought: true, ThoughtSignature: []byte("sig")},
+				{Text: "answer"},
+				{InlineData: &genai.Blob{Data: []byte{1, 2}, MIMEType: "image/png"}},
+				{FunctionCall: &genai.FunctionCall{ID: "call", Name: "lookup", Args: map[string]any{"q": "x"}}, ThoughtSignature: []byte("tool-sig")},
+			}},
+		}},
+	})
+	if len(events) != 4 {
+		t.Fatalf("events = %#v, want thought/text/image/tool", events)
+	}
+	thinking, ok := events[0].(ai.ThinkingDelta)
+	if !ok || thinking.Thinking != "private" || thinking.Signature == "" {
+		t.Fatalf("thinking event = %#v", events[0])
+	}
+	if text, ok := events[1].(ai.TextDelta); !ok || text.Text != "answer" {
+		t.Fatalf("text event = %#v", events[1])
+	}
+	if image, ok := events[2].(ai.ImageEvent); !ok || string(image.Data) != string([]byte{1, 2}) || image.MIMEType != "image/png" {
+		t.Fatalf("image event = %#v", events[2])
+	}
+	call, ok := events[3].(ai.ToolCallEvent)
+	if !ok || call.ToolCall.ThoughtSignature == "" {
+		t.Fatalf("tool event = %#v", events[3])
+	}
+}
 
 func TestProviderStreamsTextUsageToolAndStop(t *testing.T) {
 	var gotRequest struct {
@@ -153,6 +184,19 @@ func TestProviderModelsUsesOfficialSDK(t *testing.T) {
 	}
 	if len(models) != 1 || models[0].ID != "gemini-2.5-flash" {
 		t.Fatalf("models = %#v, want official Gemini response", models)
+	}
+}
+
+func TestBuildSDKRequestTreatsThinkingOffAsDisabled(t *testing.T) {
+	_, config, err := buildSDKRequest(providers.StreamRequest{
+		Model:   ai.Model{ID: "gemini-test", Reasoning: true},
+		Options: providers.StreamOptions{Reasoning: ai.ThinkingOff},
+	}, New().httpOptions(providers.StreamOptions{}, ai.Model{}))
+	if err != nil {
+		t.Fatalf("buildSDKRequest: %v", err)
+	}
+	if config == nil || config.ThinkingConfig != nil {
+		t.Fatalf("thinking config = %#v, want disabled", config)
 	}
 }
 

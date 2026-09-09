@@ -43,17 +43,28 @@ type session struct {
 	id         string
 	transcript []ai.Message
 	mu         sync.RWMutex
+	runMu      sync.Mutex
+	runtime    *agent.Agent
+	running    bool
 	createdAt  time.Time
 	updatedAt  time.Time
 }
 
-// sessionAgent builds (or rebuilds) an agent from the session transcript.
-func (s *Server) sessionAgent(sess *session, sinks ...agent.EventSink) *agent.Agent {
-	sess.mu.RLock()
+// sessionAgent returns the long-lived agent for a session. Keeping the
+// instance alive is what makes abort and steer effective from a second RPC
+// request while the first request is still running.
+func (s *Server) sessionAgent(sess *session) *agent.Agent {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	return s.sessionAgentLocked(sess)
+}
+
+func (s *Server) sessionAgentLocked(sess *session) *agent.Agent {
+	if sess.runtime != nil {
+		return sess.runtime
+	}
 	msgs := make([]ai.Message, len(sess.transcript))
 	copy(msgs, sess.transcript)
-	sess.mu.RUnlock()
-
 	opts := []agent.Option{}
 	if s.cfg.SystemPrompt != "" {
 		opts = append(opts, agent.WithSystemPrompt(s.cfg.SystemPrompt))
@@ -61,12 +72,6 @@ func (s *Server) sessionAgent(sess *session, sinks ...agent.EventSink) *agent.Ag
 	if s.cfg.Model.ID != "" {
 		opts = append(opts, agent.WithModel(s.cfg.Model))
 	}
-	for _, sink := range sinks {
-		if sink != nil {
-			opts = append(opts, agent.WithEventSink(sink))
-		}
-	}
-
 	var registry agent.ToolRegistry
 	if s.cfg.ToolRegistry != nil {
 		registry = s.cfg.ToolRegistry
@@ -75,7 +80,28 @@ func (s *Server) sessionAgent(sess *session, sinks ...agent.EventSink) *agent.Ag
 	if len(msgs) > 0 {
 		ag.Reset(msgs...)
 	}
+	sess.runtime = ag
 	return ag
+}
+
+func (s *Server) beginSessionRun(sess *session) *agent.Agent {
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	ag := s.sessionAgentLocked(sess)
+	sess.running = true
+	return ag
+}
+
+func (s *Server) finishSessionRun(sess *session, ag *agent.Agent) {
+	if ag == nil {
+		return
+	}
+	transcript := ag.Transcript()
+	sess.mu.Lock()
+	sess.transcript = transcript
+	sess.updatedAt = time.Now().UTC()
+	sess.running = false
+	sess.mu.Unlock()
 }
 
 // NewServer creates an RPC server from config.
