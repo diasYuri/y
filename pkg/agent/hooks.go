@@ -61,6 +61,22 @@ type HookedResponse struct {
 	StopReason ai.StopReason
 }
 
+// CompletionDecision controls whether the agent may finish after a turn that
+// did not request any tools. A hook returning CompletionContinue must arrange
+// for the next turn, commonly by steering the agent with an explanatory
+// message.
+type CompletionDecision string
+
+const (
+	CompletionAllow    CompletionDecision = "allow"
+	CompletionContinue CompletionDecision = "continue"
+)
+
+// BeforeCompleteHook runs immediately before the agent transitions to
+// StateCompleted. It can keep the loop alive when an extension requires more
+// work before the final response is allowed.
+type BeforeCompleteHook func(context.Context, RunResult) (CompletionDecision, error)
+
 // Logger is a minimal structured-logger interface used by the agent for
 // non-fatal diagnostics (token-estimate fallback, retry decisions, etc.).
 // Pass [DiscardLogger] to silence output.

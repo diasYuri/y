@@ -50,6 +50,7 @@ type RuntimeHooks struct {
 	BeforeCompaction func(context.Context) error
 	AfterCompaction  func(context.Context, compaction.Result, error)
 	OnSession        func(context.Context, SessionEvent) error
+	BeforeComplete   BeforeCompleteHook
 	Resources        ResourceProvider
 	Tools            RequestToolProvider
 }
@@ -101,6 +102,23 @@ func (a *Agent) applyAfterTurn(ctx context.Context, turn int, result RunResult) 
 		}
 	}
 	return nil
+}
+
+func (a *Agent) applyBeforeComplete(ctx context.Context, result RunResult) (CompletionDecision, error) {
+	decision := CompletionAllow
+	for _, hooks := range a.hooksSnapshot() {
+		if hooks.BeforeComplete == nil {
+			continue
+		}
+		current, err := hooks.BeforeComplete(ctx, result)
+		if err != nil {
+			return CompletionAllow, err
+		}
+		if current == CompletionContinue {
+			decision = CompletionContinue
+		}
+	}
+	return decision, nil
 }
 
 func (a *Agent) applyAfterModel(ctx context.Context, model ai.Model, hookErr error) error {

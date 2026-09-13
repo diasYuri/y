@@ -236,6 +236,14 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 			if a.injectPendingSteering() {
 				continue
 			}
+			decision, err := a.applyBeforeComplete(runCtx, result)
+			if err != nil {
+				a.setState(StateFailed)
+				return a.snapshotResult(result, StateFailed), err
+			}
+			if decision == CompletionContinue {
+				continue
+			}
 			break
 		}
 
