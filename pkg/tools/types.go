@@ -79,6 +79,7 @@ type ToolRequest struct {
 	Name                   string                     `json:"name"`
 	Arguments              json.RawMessage            `json:"arguments,omitempty"`
 	WorkspaceRoot          string                     `json:"workspace_root,omitempty"`
+	ProjectID              string                     `json:"project_id,omitempty"`
 	Approval               *policy.ApprovalResolution `json:"approval,omitempty"`
 	Identity               policy.Identity            `json:"identity,omitempty"`
 	RequestID              string                     `json:"request_id,omitempty"`

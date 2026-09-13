@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/yuri/y/pkg/ai"
+	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/telemetry"
 )
 
@@ -124,6 +125,16 @@ func (a *Agent) Abort() {
 		a.mu.Unlock()
 		a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(0, model, ""), Aborts: 1})
 	}
+}
+
+// ResolveApproval supplies the decision used when the next run resumes a
+// pending approval. It is safe to call while the agent is idle between worker
+// handoffs.
+func (a *Agent) ResolveApproval(resolution policy.ApprovalResolution) {
+	a.mu.Lock()
+	copy := resolution
+	a.approvalResolution = &copy
+	a.mu.Unlock()
 }
 
 // Subscribe registers an additional event sink. The returned function is

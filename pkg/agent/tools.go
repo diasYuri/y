@@ -117,6 +117,7 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	beforeToolCall := a.beforeToolCall
 	afterToolCall := a.afterToolCall
 	identity := a.policyIdentity
+	contextRequest := a.contextRequest
 	policyVersion := a.policyVersion
 	authorizationExpiresAt := a.authorizationExpiresAt
 	var approval *policy.ApprovalResolution
@@ -169,6 +170,7 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 		Name:                   toolCall.Name,
 		Arguments:              toolCall.Arguments,
 		WorkspaceRoot:          workspaceRoot,
+		ProjectID:              contextRequest.ProjectID,
 		Identity:               identity,
 		RequestID:              toolRequestID,
 		RunID:                  runID,
