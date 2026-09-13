@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// minimalWASM is a hand-crafted module that satisfies the pi.wasm.v1 ABI.
+// minimalWASM is a hand-crafted module that satisfies the y.wasm.v1 ABI.
 // It is used by tests that need a real instantiation but do not exercise
 // the host-call path.
 var minimalWASM = buildABIToolModule(mustMarshalResponse(toolResponseEnvelope("ok")))
@@ -95,7 +95,7 @@ func TestEnabledManagerLoadInvalidWASM(t *testing.T) {
 	manifest := `id = "broken.module"
 name = "Broken"
 version = "0.0.1"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 `
 	if err := os.WriteFile(filepath.Join(extDir, ManifestFileName), []byte(manifest), 0o644); err != nil {
@@ -199,7 +199,7 @@ func TestEnabledManagerCallToolTrap(t *testing.T) {
 	manifest := `id = "trap.search"
 name = "Trap"
 version = "0.0.1"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 `
 	if err := os.WriteFile(filepath.Join(extDir, ManifestFileName), []byte(manifest), 0o644); err != nil {

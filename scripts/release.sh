@@ -18,8 +18,7 @@
 #
 # Each archive contains the primary y binary when it is built for the flavor.
 #   LICENSE
-#   docs/release.md
-#   docs/migration-from-pi.md
+#   docs/runtime-protocol.md
 #
 # The script also writes dist/SHA256SUMS covering every produced archive.
 
@@ -179,7 +178,7 @@ archive_one() {
 	fi
 
 	# Copy ancillary files; tolerate missing optional docs.
-	for asset in LICENSE docs/release.md docs/migration-from-pi.md; do
+	for asset in LICENSE docs/runtime-protocol.md; do
 		local src="${REPO_ROOT}/${asset}"
 		if [ -f "${src}" ]; then
 			local dest="${stage}/${asset}"

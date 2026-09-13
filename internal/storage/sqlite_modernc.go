@@ -32,7 +32,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		dir := os.Getenv("Y_CODING_AGENT_DIR")
 		if dir == "" {
 			home, _ := os.UserHomeDir()
-			dir = filepath.Join(home, ".pi", "agent")
+			dir = filepath.Join(home, ".y", "agent")
 		}
 		dbPath = filepath.Join(dir, "sessions.db")
 	}

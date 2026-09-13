@@ -16,12 +16,12 @@ import (
 // not import the parent wasm package. Doing so would create an import cycle
 // when the wasm package itself uses wasmtest in its tests.
 const (
-	exportInit       = "pi_extension_init"
-	exportHandle     = "pi_extension_handle"
-	exportShutdown   = "pi_extension_shutdown"
-	exportFree       = "pi_extension_free"
+	exportInit       = "y_extension_init"
+	exportHandle     = "y_extension_handle"
+	exportShutdown   = "y_extension_shutdown"
+	exportFree       = "y_extension_free"
 	exportMalloc     = "malloc"
-	exportABIVersion = "pi_extension_abi_version"
+	exportABIVersion = "y_extension_abi_version"
 )
 
 // Builder assembles a hand-rolled WebAssembly module. It only supports the
@@ -255,7 +255,7 @@ func BuildABIToolModule(response []byte) []byte {
 	return AppendDataSection(out, responseOffset, response)
 }
 
-// BuildABITrappingModule returns a guest whose pi_extension_handle traps
+// BuildABITrappingModule returns a guest whose y_extension_handle traps
 // using the unreachable opcode. The other ABI exports are valid so the
 // loader still accepts the module.
 func BuildABITrappingModule() []byte {

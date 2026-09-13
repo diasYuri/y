@@ -253,7 +253,7 @@ func (m *activeManager) CallTool(ctx context.Context, id string, req ToolRequest
 
 // CallRuntime dispatches the P1 lifecycle/event/hook envelope through the
 // guest's existing handle export. No new guest export is needed, preserving
-// pi.wasm.v1 modules that already route envelopes by Kind.
+// y.wasm.v1 modules that already route envelopes by Kind.
 func (m *activeManager) CallRuntime(ctx context.Context, id string, req RuntimeRequest) (resp RuntimeResponse, err error) {
 	switch req.Kind {
 	case KindLifecycle, KindRuntimeEvent, KindHook:
@@ -296,7 +296,7 @@ func (m *activeManager) CallRuntime(ctx context.Context, id string, req RuntimeR
 	return RuntimeResponse{Payload: append(json.RawMessage(nil), parsed.Payload...)}, nil
 }
 
-// invokeInit calls the guest's pi_extension_init export. Failures fall back
+// invokeInit calls the guest's y_extension_init export. Failures fall back
 // to a trap-safe error so the caller can decide whether to retry or unload.
 func (m *activeManager) invokeInit(ctx context.Context, mod *loadedModule) (err error) {
 	defer func() {
@@ -407,7 +407,7 @@ func (m *activeManager) dispatch(ctx context.Context, mod *loadedModule, env Env
 }
 
 // allocAndWrite uses the guest's allocator to reserve enough room for the
-// envelope and copies the bytes in. It picks pi_extension_malloc when
+// envelope and copies the bytes in. It picks y_extension_malloc when
 // present, otherwise falls back to TinyGo's exported "malloc".
 func (m *activeManager) allocAndWrite(ctx context.Context, mod *loadedModule, data []byte) (uint32, uint32, error) {
 	alloc := mod.fnMalloc
@@ -419,7 +419,7 @@ func (m *activeManager) allocAndWrite(ctx context.Context, mod *loadedModule, da
 	}
 	if alloc == nil {
 		return 0, 0, newExtensionError(mod.info.Manifest.ID, CodeABIMismatch,
-			"guest exports neither pi_extension_malloc nor malloc", nil)
+			"guest exports neither y_extension_malloc nor malloc", nil)
 	}
 	results, err := alloc.Call(ctx, uint64(len(data)))
 	if err != nil {
@@ -537,7 +537,7 @@ func (m *activeManager) ensureRuntime(ctx context.Context, memoryPages uint32) (
 	return rt, nil
 }
 
-// ensureHostModule registers the pi_host module exactly once. The Manager
+// ensureHostModule registers the y_host module exactly once. The Manager
 // keeps a single instance so every guest sees a stable namespace.
 func (m *activeManager) ensureHostModule(ctx context.Context) error {
 	m.mu.Lock()
@@ -581,7 +581,7 @@ func classifyCallError(id string, err error) error {
 }
 
 // verifyABI ensures the guest exports the minimum surface required by
-// pi.wasm.v1. It is intentionally lenient about the optional malloc
+// y.wasm.v1. It is intentionally lenient about the optional malloc
 // alternatives because TinyGo guests only export "malloc".
 func verifyABI(mod api.Module) error {
 	if mod.Memory() == nil {

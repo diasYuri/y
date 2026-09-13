@@ -1,7 +1,7 @@
 id = "y.examples.hello"
 name = "Hello"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 
 [runtime]

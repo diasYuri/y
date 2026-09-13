@@ -11,7 +11,7 @@ func TestParseManifestValidExample(t *testing.T) {
 	const src = `id = "example.search"
 name = "Example Search"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 
 [runtime]
@@ -72,7 +72,7 @@ func TestManifestValidationErrors(t *testing.T) {
 			name: "missing id",
 			src: `name = "x"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"`,
 			want: "id",
 		},
@@ -81,7 +81,7 @@ entry = "module.wasm"`,
 			src: `id = "ext"
 name = "x"
 version = "0.1.0"
-api_version = "pi.wasm.v0"
+api_version = "y.wasm.v0"
 entry = "module.wasm"`,
 			want: "api_version",
 		},
@@ -90,7 +90,7 @@ entry = "module.wasm"`,
 			src: `id = "ext"
 name = "x"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "/abs/module.wasm"`,
 			want: "entry",
 		},
@@ -99,7 +99,7 @@ entry = "/abs/module.wasm"`,
 			src: `id = "ext"
 name = "x"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.txt"`,
 			want: "entry",
 		},
@@ -108,7 +108,7 @@ entry = "module.txt"`,
 			src: `id = "ext"
 name = "x"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 
 [[tools]]
@@ -124,7 +124,7 @@ name = "dup"
 			src: `id = "ext"
 name = "x"
 version = "0.1.0"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 
 [runtime]

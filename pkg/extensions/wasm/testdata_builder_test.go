@@ -13,7 +13,7 @@ func buildABIToolModule(response []byte) []byte {
 	return wasmtest.BuildABIToolModule(response)
 }
 
-// buildABITrappingModule returns a guest whose pi_extension_handle traps
+// buildABITrappingModule returns a guest whose y_extension_handle traps
 // using the unreachable opcode. The other ABI exports are valid so the
 // loader still accepts the module.
 func buildABITrappingModule() []byte {

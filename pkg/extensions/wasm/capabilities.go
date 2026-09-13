@@ -76,9 +76,8 @@ const (
 	DecisionDeny Decision = iota
 	DecisionAllow
 	// DecisionRequireApproval signals the caller must surface a UI
-	// approval before continuing. Phase 8 only honours allow/deny; the
-	// constant exists so future phases can extend the policy without
-	// breaking the interface.
+	// approval before continuing. The current host honours allow/deny; the
+	// constant leaves room to extend the policy without breaking the interface.
 	DecisionRequireApproval
 )
 
@@ -169,8 +168,8 @@ func ResolveCapabilityGrants(req CapabilitySet, allowed []Capability) Capability
 	return NewCapabilityGrantSet(out...)
 }
 
-// ParseCapabilities expands the legacy "filesystem"/"network"/... names
-// understood by the manifest into the granular capability identifiers.
+// ParseCapabilities expands manifest capability names into granular
+// capability identifiers.
 func ParseCapabilities(names []string) ([]Capability, error) {
 	if len(names) == 0 {
 		return nil, nil
@@ -197,7 +196,7 @@ func ParseCapabilities(names []string) ([]Capability, error) {
 			out = append(out, CapGitRead, CapGitWrite)
 		case "secrets":
 			out = append(out, CapSecretsRead)
-		case "pi_tools", "y_tools":
+		case "y_tools":
 			out = append(out, CapYTools)
 		default:
 			return nil, fmt.Errorf("unknown capability %q", name)

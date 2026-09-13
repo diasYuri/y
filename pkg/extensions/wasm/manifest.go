@@ -13,13 +13,13 @@ import (
 // SupportedAPIVersion is the host-side ABI version recognised by Manifest
 // validation. Manifests that declare a different api_version are rejected so
 // that the host can fail fast on incompatible guests.
-const SupportedAPIVersion = "pi.wasm.v1"
+const SupportedAPIVersion = "y.wasm.v1"
 
 // ManifestFileName is the filename inspected during discovery.
 const ManifestFileName = "extension.toml"
 
 // Manifest captures the metadata read from extension.toml. Field semantics
-// follow the spec in extension-wasm.md §7.
+// follow the Y extension protocol.
 type Manifest struct {
 	ID           string
 	Name         string
@@ -279,7 +279,7 @@ func assignTopLevel(m *Manifest, key, value string, line int, path string) error
 
 func assignRuntime(r *RuntimeManifest, key, value string, line int, path string) error {
 	switch key {
-	case "min_pi_version", "min_y_version":
+	case "min_y_version":
 		s, err := parseString(value)
 		if err != nil {
 			return newManifestError(path, "runtime."+key, err.Error(), line, err)
@@ -316,7 +316,7 @@ func assignCapability(c *CapabilitySet, key, value string, line int, path string
 		return newManifestError(path, "capabilities."+key, err.Error(), line, err)
 	}
 	switch key {
-	case "pi_tools", "y_tools":
+	case "y_tools":
 		c.YTools = v
 	case "filesystem":
 		c.Filesystem = v

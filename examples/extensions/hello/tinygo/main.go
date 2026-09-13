@@ -70,10 +70,10 @@ type sayArgs struct {
 
 func main() {}
 
-//export pi_extension_abi_version
+//export y_extension_abi_version
 func ABIVersion() uint32 { return 1 }
 
-//export pi_extension_init
+//export y_extension_init
 func Init(ptr, length uint32) uint64 {
 	_ = readBuffer(ptr, length)
 	body, err := json.Marshal(initResponse{
@@ -87,7 +87,7 @@ func Init(ptr, length uint32) uint64 {
 	return marshalResponse(response{OK: true, Payload: body})
 }
 
-//export pi_extension_handle
+//export y_extension_handle
 func Handle(ptr, length uint32) uint64 {
 	raw := readBuffer(ptr, length)
 	var env envelope
@@ -143,13 +143,13 @@ func Handle(ptr, length uint32) uint64 {
 	return marshalResponse(response{RequestID: env.RequestID, OK: true, Payload: body})
 }
 
-//export pi_extension_shutdown
+//export y_extension_shutdown
 func Shutdown(ptr, length uint32) uint64 {
 	_ = readBuffer(ptr, length)
 	return marshalResponse(response{OK: true})
 }
 
-//export pi_extension_free
+//export y_extension_free
 func Free(ptr, length uint32) {
 	if ptr == 0 || length == 0 {
 		return
@@ -172,7 +172,7 @@ func readBuffer(ptr, length uint32) []byte {
 }
 
 // marshalResponse encodes the response and returns the (ptr, len) pair the
-// host expects. The buffer is intentionally leaked: pi_extension_free is
+// host expects. The buffer is intentionally leaked: y_extension_free is
 // invoked by the host with the same pointer and length so TinyGo's GC
 // reclaims it on the next collection cycle.
 func marshalResponse(r response) uint64 {

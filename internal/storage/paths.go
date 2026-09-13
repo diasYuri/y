@@ -15,9 +15,9 @@ func DefaultAgentDir() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return filepath.Join(string(os.PathSeparator), ".pi", "agent")
+		return filepath.Join(string(os.PathSeparator), ".y", "agent")
 	}
-	return filepath.Join(home, ".pi", "agent")
+	return filepath.Join(home, ".y", "agent")
 }
 
 // DefaultConfigPath returns the default TOML configuration path.

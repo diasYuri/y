@@ -14,7 +14,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-// registerHostModule installs the pi_host module and exports its functions.
+// registerHostModule installs the y_host module and exports its functions.
 // The host functions are intentionally tiny: they read JSON envelopes from
 // guest memory, dispatch to native helpers, and write JSON results back via
 // the guest allocator. Capability checks happen here so a misconfigured
@@ -52,7 +52,7 @@ func registerHostModule(ctx context.Context, rt wazero.Runtime, cfg Config) (api
 }
 
 // makeHostCall returns a wazero host function that handles every kind that
-// flows through pi_host_call.
+// flows through y_host_call.
 func makeHostCall(cfg Config) func(ctx context.Context, mod api.Module, stack []uint64) {
 	return func(ctx context.Context, mod api.Module, stack []uint64) {
 		defer func() {
@@ -172,7 +172,7 @@ func hostNow(_ context.Context, _ api.Module, stack []uint64) {
 	stack[0] = uint64(timestampMS())
 }
 
-// dispatchHostCall services every kind of pi_host_call envelope. Each
+// dispatchHostCall services every kind of y_host_call envelope. Each
 // branch is responsible for capability gating and structured error
 // reporting.
 func dispatchHostCall(ctx context.Context, cfg Config, scope *callScope, req HostCallRequest) Response {
@@ -405,7 +405,7 @@ func writeFabricatedError(mod api.Module, packed *uint64, code, msg string, caus
 
 // writeResponseToGuest copies a host-prepared buffer into guest memory.
 // The pointer returned must be freed by the guest (every export contract
-// requires the guest to call pi_extension_free on returned pointers).
+// requires the guest to call y_extension_free on returned pointers).
 func writeResponseToGuest(ctx context.Context, mod api.Module, data []byte) (uint32, bool) {
 	alloc := mod.ExportedFunction(ExportMalloc)
 	if alloc == nil {

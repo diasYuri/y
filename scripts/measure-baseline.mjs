@@ -6,60 +6,11 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const yMonoRoot = resolve(scriptDir, "..");
-const workspaceRoot = resolve(yMonoRoot, "..");
-const defaultLegacyRoot = join(workspaceRoot, "pi-mono");
-const defaultOutputPath = join(yMonoRoot, "docs", "baseline", "measurements-results.jsonl");
-const activity = "phase-0-baseline-measurements";
+const projectRoot = resolve(scriptDir, "..");
+const defaultOutputPath = join(projectRoot, "docs", "baseline", "measurements-results.jsonl");
+const activity = "y-runtime-baseline-measurements";
 
 const scenarioDefinitions = new Map([
-	[
-		"legacy-help",
-		{
-			description: "Legacy pi CLI cold start without TUI, exiting after --help.",
-			mode: "headless",
-			product: "pi-mono",
-			buildCommand: (options) => ({
-				executable: process.execPath,
-				args: [legacyCliPath(options), "--help"],
-				cwd: legacyPackageDir(options),
-				env: benchmarkEnv(options),
-			}),
-			requirements: (options) => [
-				commandRequirement("node runtime", process.execPath),
-				fileRequirement("legacy built CLI", legacyCliPath(options), "Run the pi-mono TypeScript build before measuring, or point --legacy-root at a built checkout."),
-				rssRequirement(),
-			],
-		},
-	],
-	[
-		"legacy-rpc",
-		{
-			description: "Legacy pi RPC cold start without TUI, ready when get_state responds.",
-			mode: "headless",
-			product: "pi-mono",
-			stdin: (runNumber) => `${JSON.stringify({ id: `baseline-${runNumber}`, type: "get_state" })}\n`,
-			readyWhen: (line, runNumber) => {
-				if (line.trim() === "") {
-					return false;
-				}
-				const parsed = JSON.parse(line);
-				return parsed?.type === "response" && parsed?.id === `baseline-${runNumber}` && parsed?.command === "get_state";
-			},
-			closeStdinOnReady: true,
-			buildCommand: (options) => ({
-				executable: process.execPath,
-				args: [legacyCliPath(options), "--mode", "rpc", "--no-session"],
-				cwd: legacyPackageDir(options),
-				env: benchmarkEnv(options),
-			}),
-			requirements: (options) => [
-				commandRequirement("node runtime", process.execPath),
-				fileRequirement("legacy built CLI", legacyCliPath(options), "Run the pi-mono TypeScript build before measuring, or point --legacy-root at a built checkout."),
-				rssRequirement(),
-			],
-		},
-	],
 	[
 		"control-large-stdout",
 		{
@@ -69,7 +20,7 @@ const scenarioDefinitions = new Map([
 			buildCommand: (options) => ({
 				executable: process.execPath,
 				args: ["-e", largeOutputProgram("stdout", options.largeOutputBytes)],
-				cwd: yMonoRoot,
+				cwd: projectRoot,
 				env: process.env,
 			}),
 			requirements: () => [
@@ -87,7 +38,7 @@ const scenarioDefinitions = new Map([
 			buildCommand: (options) => ({
 				executable: process.execPath,
 				args: ["-e", largeOutputProgram("stderr", options.largeOutputBytes)],
-				cwd: yMonoRoot,
+				cwd: projectRoot,
 				env: process.env,
 			}),
 			requirements: () => [
@@ -97,20 +48,20 @@ const scenarioDefinitions = new Map([
 		},
 	],
 	[
-		"candidate-help",
+		"y-help",
 		{
-			description: "Future y binary cold start without TUI, exiting after --help.",
+			description: "Y binary cold start without TUI, exiting after --help.",
 			mode: "headless",
 			product: "y",
 			optional: true,
 			buildCommand: (options) => ({
-				executable: options.candidateBin,
+				executable: options.yBin,
 				args: ["--help"],
-				cwd: yMonoRoot,
+				cwd: projectRoot,
 				env: process.env,
 			}),
 			requirements: (options) => [
-				fileRequirement("candidate y binary from --candidate-bin", options.candidateBin, "Build y first, then pass --candidate-bin /path/to/y."),
+				fileRequirement("Y binary from --y-bin", options.yBin, "Build Y first, then pass --y-bin /path/to/y."),
 				rssRequirement(),
 			],
 		},
@@ -119,10 +70,10 @@ const scenarioDefinitions = new Map([
 
 function printHelp() {
 	console.log(`Usage:
-  node y/scripts/measure-baseline.mjs --list
-  node y/scripts/measure-baseline.mjs --check --scenario legacy-rpc
-  node y/scripts/measure-baseline.mjs --scenario control-large-stdout --runs 3
-  node y/scripts/measure-baseline.mjs --all --output y/docs/baseline/measurements-results.jsonl
+  node scripts/measure-baseline.mjs --list
+  node scripts/measure-baseline.mjs --check --scenario y-help --y-bin ./y
+  node scripts/measure-baseline.mjs --scenario control-large-stdout --runs 3
+  node scripts/measure-baseline.mjs --all --output docs/baseline/measurements-results.jsonl
 
 Options:
   --list                    List scenarios and exit.
@@ -135,14 +86,12 @@ Options:
   --sample-ms <n>           RSS sample interval. Default: 50.
   --max-output-bytes <n>    Captured stdout/stderr preview bytes. Default: 1048576.
   --large-output-bytes <n>  Bytes emitted by large command controls. Default: 16777216.
-  --legacy-root <path>      pi-mono checkout. Default: ${toDisplayPath(defaultLegacyRoot)}.
-  --candidate-bin <path>    Future y binary for candidate-* scenarios.
+  --y-bin <path>            Y binary for the y-help scenario.
   --output <path>           JSONL result path. Default: ${toDisplayPath(defaultOutputPath)}.
   --no-write                Print summaries without writing JSONL.
   --help                    Show this help.
 
 Notes:
-  - Legacy scenarios never build or modify pi-mono. They require an existing built dist/cli.js.
   - RSS is sampled from the process tree with ps(1).
   - RSS is sampled from the process tree with ps(1). Heap metrics are recorded only when the child emits METRIC heap_* lines.`);
 }
@@ -159,8 +108,7 @@ function parseArgs(argv) {
 		sampleMs: 50,
 		maxOutputBytes: 1_048_576,
 		largeOutputBytes: 16_777_216,
-		legacyRoot: defaultLegacyRoot,
-		candidateBin: undefined,
+		yBin: undefined,
 		output: defaultOutputPath,
 		write: true,
 	};
@@ -214,11 +162,8 @@ function parseArgs(argv) {
 				case "--large-output-bytes":
 					options.largeOutputBytes = parsePositiveInteger(value, arg, false);
 					break;
-				case "--legacy-root":
-					options.legacyRoot = resolve(value);
-					break;
-				case "--candidate-bin":
-					options.candidateBin = resolve(value);
+				case "--y-bin":
+					options.yBin = resolve(value);
 					break;
 				case "--output":
 					options.output = resolve(value);
@@ -241,8 +186,7 @@ function needsValue(arg) {
 		"--sample-ms",
 		"--max-output-bytes",
 		"--large-output-bytes",
-		"--legacy-root",
-		"--candidate-bin",
+		"--y-bin",
 		"--output",
 	].includes(arg);
 }
@@ -279,23 +223,6 @@ function listScenarios() {
 		const optional = scenario.optional ? " optional" : "";
 		console.log(`${id} [${scenario.mode}${optional}] ${scenario.description}`);
 	}
-}
-
-function legacyPackageDir(options) {
-	return join(options.legacyRoot, "packages", "coding-agent");
-}
-
-function legacyCliPath(options) {
-	return join(legacyPackageDir(options), "dist", "cli.js");
-}
-
-function benchmarkEnv(options) {
-	return {
-		...process.env,
-		PI_OFFLINE: "1",
-		PI_SKIP_VERSION_CHECK: "1",
-		PI_CODING_AGENT_DIR: join(yMonoRoot, ".baseline-agent"),
-	};
 }
 
 function buildScriptWrappedCommand(command, cwd, env) {
@@ -528,7 +455,6 @@ async function runOnce(id, scenario, options, runNumber) {
 	if (Object.keys(heapMetrics).length === 0) {
 		notes.push("heap metrics unavailable: child did not emit METRIC heap_* lines");
 	}
-	}
 
 	return {
 		schema_version: 1,
@@ -662,7 +588,7 @@ function round(value) {
 }
 
 function toDisplayPath(path) {
-	const rel = relative(workspaceRoot, path);
+	const rel = relative(projectRoot, path);
 	return rel && !rel.startsWith("..") ? rel.replaceAll("\\", "/") : path;
 }
 

@@ -13,7 +13,7 @@ import (
 const exampleManifest = `id = "y.example.cli-test"
 name = "CLI Test"
 version = "0.0.1"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 
 [runtime]
@@ -89,7 +89,7 @@ func TestRunExtensionValidate(t *testing.T) {
 
 func TestRunExtensionValidateRejectsBadManifest(t *testing.T) {
 	root := t.TempDir()
-	manifest := strings.Replace(exampleManifest, `api_version = "pi.wasm.v1"`, `api_version = "pi.wasm.v0"`, 1)
+	manifest := strings.Replace(exampleManifest, `api_version = "y.wasm.v1"`, `api_version = "y.wasm.v0"`, 1)
 	writeExampleExtension(t, root, "y.example.cli-test", manifest)
 
 	var stdout, stderr bytes.Buffer

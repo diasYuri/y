@@ -17,7 +17,7 @@ const exampleID = "y.examples.hello"
 
 // TestHelloExampleManifest checks that the example's manifest still
 // parses cleanly. It guards against the file drifting away from the
-// pi.wasm.v1 contract.
+// y.wasm.v1 contract.
 func TestHelloExampleManifest(t *testing.T) {
 	manifestPath := manifestPath(t)
 	manifest, err := wasm.ReadManifest(manifestPath)

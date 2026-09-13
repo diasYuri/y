@@ -1,5 +1,5 @@
 // Package coding provides the coding agent framework for AI-assisted code editing.
-// It is the Go equivalent of pi-mono's coding-agent package.
+// It provides reusable session, context, and edit contracts for Y applications.
 package coding
 
 import (

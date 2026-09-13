@@ -12,7 +12,7 @@ import (
 const validManifest = `id = "fake.search"
 name = "Fake"
 version = "0.0.1"
-api_version = "pi.wasm.v1"
+api_version = "y.wasm.v1"
 entry = "module.wasm"
 
 [runtime]
@@ -81,7 +81,7 @@ func TestManagerDiscoverInvalidManifest(t *testing.T) {
 	bad := `id = "broken"
 name = "broken"
 version = "0.0.1"
-api_version = "pi.wasm.v0"
+api_version = "y.wasm.v0"
 entry = "module.wasm"
 `
 	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(bad), 0o644); err != nil {

@@ -6,40 +6,40 @@ import (
 )
 
 // Exported function names every guest must provide. They form the
-// pi.wasm.v1 contract described in extension-wasm.md §10.
+// y.wasm.v1 contract described in the extension protocol documentation.
 const (
-	ExportABIVersion = "pi_extension_abi_version"
-	ExportInit       = "pi_extension_init"
-	ExportHandle     = "pi_extension_handle"
-	ExportShutdown   = "pi_extension_shutdown"
-	ExportFree       = "pi_extension_free"
+	ExportABIVersion = "y_extension_abi_version"
+	ExportInit       = "y_extension_init"
+	ExportHandle     = "y_extension_handle"
+	ExportShutdown   = "y_extension_shutdown"
+	ExportFree       = "y_extension_free"
 
 	// ExportMalloc lets the host allocate guest memory before invoking
 	// init/handle/shutdown. Guests may either expose this name or the
 	// "malloc" alias used by TinyGo's `-target=wasi`.
-	ExportMalloc      = "pi_extension_malloc"
+	ExportMalloc      = "y_extension_malloc"
 	ExportMallocAlias = "malloc"
 
 	// HostModuleName is the WebAssembly module that exposes the host
 	// functions described in §14.
-	HostModuleName = "pi_host"
+	HostModuleName = "y_host"
 
 	// FuncHostCall is the unified host call entry. Guests pass JSON
 	// envelopes through it and receive structured responses.
-	FuncHostCall = "pi_host_call"
+	FuncHostCall = "y_host_call"
 	// FuncHostLog records an informational message in the extension log
 	// stream. Logs are bounded by the host limits.
-	FuncHostLog = "pi_host_log"
+	FuncHostLog = "y_host_log"
 	// FuncHostNow returns wall-clock time in milliseconds since epoch.
-	FuncHostNow = "pi_host_now"
+	FuncHostNow = "y_host_now"
 )
 
 // SupportedABIVersion is the integer value returned by
-// pi_extension_abi_version() that the host accepts. Bumping this constant is
+// y_extension_abi_version() that the host accepts. Bumping this constant is
 // a breaking change.
 const SupportedABIVersion uint32 = 1
 
-// LogLevel maps the integer levels accepted by pi_host_log onto a textual
+// LogLevel maps the integer levels accepted by y_host_log onto a textual
 // representation suitable for log routing.
 type LogLevel uint32
 
@@ -94,7 +94,7 @@ const (
 	// KindHook invokes a named runtime extension hook with a typed payload.
 	KindHook EnvelopeKind = "hook"
 
-	// Host call kinds, used by pi_host_call:
+	// Host call kinds, used by y_host_call:
 	KindHostLog     EnvelopeKind = "log"
 	KindHostNow     EnvelopeKind = "now"
 	KindHostCapInfo EnvelopeKind = "capability_info"
@@ -131,7 +131,7 @@ type InitRequest struct {
 	Config       map[string]any `json:"config,omitempty"`
 }
 
-// InitResponse is the structured payload returned by pi_extension_init.
+// InitResponse is the structured payload returned by y_extension_init.
 type InitResponse struct {
 	Tools     []ToolDescriptor     `json:"tools,omitempty"`
 	Commands  []CommandDescriptor  `json:"commands,omitempty"`
@@ -214,7 +214,7 @@ type LimitsSnapshot struct {
 	TimeoutMS      uint32 `json:"timeout_ms,omitempty"`
 }
 
-// HostCallRequest is the envelope guests send through pi_host_call.
+// HostCallRequest is the envelope guests send through y_host_call.
 type HostCallRequest struct {
 	Kind    EnvelopeKind    `json:"kind"`
 	Payload json.RawMessage `json:"payload,omitempty"`

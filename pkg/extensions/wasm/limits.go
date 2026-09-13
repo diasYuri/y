@@ -20,9 +20,9 @@ type Limits struct {
 	// host stops reading after this many bytes and reports a structured
 	// error.
 	MaxOutputBytes uint32
-	// MaxLogBytes caps the cumulative bytes accepted from pi_host_log.
+	// MaxLogBytes caps the cumulative bytes accepted from y_host_log.
 	MaxLogBytes uint32
-	// MaxHostCalls bounds how many pi_host_call invocations a single tool
+	// MaxHostCalls bounds how many y_host_call invocations a single tool
 	// call may issue.
 	MaxHostCalls uint32
 	// Fuel is the optional WebAssembly fuel ceiling. Zero disables fuel

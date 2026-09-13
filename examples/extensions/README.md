@@ -1,9 +1,8 @@
 # y WASM extension examples
 
-This directory hosts SDK examples that exercise the optional `pi.wasm.v1`
-extension host introduced in Phase 8 of the Go migration. They are not
-required to use y; they exist so authors have a copy/paste starting point
-when shipping their own extensions.
+This directory hosts SDK examples that exercise Y's optional `y.wasm.v1`
+extension host. They are not required to use Y; they exist so authors have a
+copy/paste starting point when shipping their own extensions.
 
 | Example | Description |
 |---------|-------------|
@@ -18,8 +17,8 @@ go build -tags feature_wasm_ext ./cmd/y
 
 Without that tag the extension subcommands are gated off and any attempt
 to load a guest module fails fast with `wasm.ErrHostUnavailable`. See
-[`docs/wasm-extensions.md`](../../docs/wasm-extensions.md) for the
-full host/guest contract.
+[`docs/runtime-protocol.md`](../../docs/runtime-protocol.md) for the
+runtime integration details.
 
 ## Pointing y at the examples
 
@@ -31,6 +30,6 @@ y extension enable y.examples.hello
 y extension disable y.examples.hello
 ```
 
-Enable/disable persist toggle state to `~/.pi/agent/extensions.toml`.
+Enable/disable persist toggle state to `~/.y/agent/extensions.toml`.
 The list and info commands read manifests from disk and never
 instantiate guest modules unless `module.wasm` is present.

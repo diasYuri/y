@@ -29,8 +29,7 @@
 .idea/
 .vscode/
 
-# Local agent state from `y`
-.baseline-agent/
+# Local agent state from Y
 .y/
 examples/coding-agent/workspace/*
 .private
