@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/yuri/y/internal/storage"
+	"github.com/diasYuri/y/internal/storage"
 )
 
 // Store provides atomic read/write of the auth file.

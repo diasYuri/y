@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 func (s *JSONLStore) AcquireLease(ctx context.Context, runID, owner string, ttl time.Duration) (Lease, error) {

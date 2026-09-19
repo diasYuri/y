@@ -59,7 +59,7 @@ User Prompt
 Replace the Anthropic provider setup with:
 
 ```go
-import "github.com/yuri/y/pkg/providers/openai_compatible"
+import "github.com/diasYuri/y/pkg/providers/openai_compatible"
 
 provider := openai_compatible.New(
     openai_compatible.WithBaseURL("https://api.moonshot.cn/v1"), // Kimi
@@ -76,7 +76,7 @@ model := ai.Model{
 ### Google Gemini
 
 ```go
-import "github.com/yuri/y/pkg/providers/google"
+import "github.com/diasYuri/y/pkg/providers/google"
 
 provider := google.New(
     google.WithAPIKey(os.Getenv("GEMINI_API_KEY")),

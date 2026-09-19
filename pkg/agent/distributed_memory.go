@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 type InMemoryStateStore struct {

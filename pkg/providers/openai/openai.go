@@ -18,11 +18,11 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/auth"
-	"github.com/yuri/y/pkg/providers/internal/retryafter"
-	"github.com/yuri/y/pkg/providers/internal/sdkstream"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/auth"
+	"github.com/diasYuri/y/pkg/providers/internal/retryafter"
+	"github.com/diasYuri/y/pkg/providers/internal/sdkstream"
 )
 
 const (

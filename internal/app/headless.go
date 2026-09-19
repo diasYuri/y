@@ -11,16 +11,16 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/yuri/y/internal/feature"
-	"github.com/yuri/y/internal/runtime"
-	"github.com/yuri/y/internal/storage"
-	"github.com/yuri/y/internal/telemetry"
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	runtimeextensions "github.com/yuri/y/pkg/extensions"
-	"github.com/yuri/y/pkg/policy"
-	"github.com/yuri/y/pkg/session"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/runtime"
+	"github.com/diasYuri/y/internal/storage"
+	"github.com/diasYuri/y/internal/telemetry"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	runtimeextensions "github.com/diasYuri/y/pkg/extensions"
+	"github.com/diasYuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/session"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 const (

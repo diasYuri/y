@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/feature"
 )
 
 func TestParseDeclarativeConfig(t *testing.T) {

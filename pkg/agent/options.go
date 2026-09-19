@@ -3,12 +3,12 @@ package agent
 import (
 	"time"
 
-	"github.com/yuri/y/pkg/agent/compaction"
-	"github.com/yuri/y/pkg/ai"
-	ycontext "github.com/yuri/y/pkg/context"
-	"github.com/yuri/y/pkg/policy"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/agent/compaction"
+	"github.com/diasYuri/y/pkg/ai"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	"github.com/diasYuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/telemetry"
 )
 
 // WithModel sets the provider model used for future runs.

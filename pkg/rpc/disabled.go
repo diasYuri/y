@@ -9,8 +9,8 @@ import (
 	"io"
 	"net"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // Request is a JSON-RPC 2.0 request.

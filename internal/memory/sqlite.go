@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	ycontext "github.com/yuri/y/pkg/context"
-	pmemory "github.com/yuri/y/pkg/memory"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 // SQLiteOperationalIndex is the optional operational-index seam. The minimal

@@ -7,10 +7,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/yuri/y/pkg/agent/compaction"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/agent/compaction"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/telemetry"
 )
 
 // ErrRetry is a sentinel returned by [ErrorHook] to request that the failing

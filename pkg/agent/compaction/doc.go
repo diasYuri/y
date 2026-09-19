@@ -23,9 +23,9 @@
 // # How customization plugs into the agent
 //
 // The agent calls [Compactor.MaybeCompact] after each turn when
-// compaction is enabled (see [github.com/yuri/y/pkg/agent.WithCompaction]).
+// compaction is enabled (see [github.com/diasYuri/y/pkg/agent.WithCompaction]).
 // To swap in a custom compactor, pass it via
-// [github.com/yuri/y/pkg/agent.WithCompactor]. The agent owns
+// [github.com/diasYuri/y/pkg/agent.WithCompactor]. The agent owns
 // scheduling: compaction runs on a background goroutine and replaces the
 // transcript only when the rewrite succeeds, so callers do not need to
 // coordinate locks.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	policypkg "github.com/yuri/y/pkg/policy"
+	policypkg "github.com/diasYuri/y/pkg/policy"
 )
 
 type toolRequestContextKey struct{}

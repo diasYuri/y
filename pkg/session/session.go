@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // SessionSummary describes one persisted agent transcript.

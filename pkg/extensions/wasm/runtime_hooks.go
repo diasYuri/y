@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/yuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/agent"
 )
 
 // RuntimeHooks adapts one or more WASM extensions into Agent lifecycle hooks.

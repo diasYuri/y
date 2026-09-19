@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
 	"google.golang.org/genai"
 )
 

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/yuri/y/internal/buildinfo"
-	"github.com/yuri/y/internal/config"
-	"github.com/yuri/y/internal/diagnostics"
-	"github.com/yuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/buildinfo"
+	"github.com/diasYuri/y/internal/config"
+	"github.com/diasYuri/y/internal/diagnostics"
+	"github.com/diasYuri/y/internal/feature"
 )
 
 // BuildInfo is the build metadata needed during CLI bootstrap.

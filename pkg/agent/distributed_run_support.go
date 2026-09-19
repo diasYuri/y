@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 func (r *AgentRunner) loadInitial(ctx context.Context, request RunRequest) (Snapshot, uint64, error) {

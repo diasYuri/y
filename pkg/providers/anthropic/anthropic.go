@@ -16,11 +16,11 @@ import (
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/auth"
-	"github.com/yuri/y/pkg/providers/internal/retryafter"
-	"github.com/yuri/y/pkg/providers/internal/sdkstream"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/auth"
+	"github.com/diasYuri/y/pkg/providers/internal/retryafter"
+	"github.com/diasYuri/y/pkg/providers/internal/sdkstream"
 )
 
 const (

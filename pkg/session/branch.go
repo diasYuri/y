@@ -3,8 +3,8 @@ package session
 import (
 	"context"
 
-	"github.com/yuri/y/pkg/agent/branch"
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/agent/branch"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // BranchStore defines backend-neutral session branching. Implementations may

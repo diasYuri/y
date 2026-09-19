@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
 )
 
 // ErrEventTooLarge is returned when one SSE frame exceeds the configured

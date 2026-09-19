@@ -6,8 +6,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/yuri/y/internal/feature"
-	publicconfig "github.com/yuri/y/pkg/config"
+	"github.com/diasYuri/y/internal/feature"
+	publicconfig "github.com/diasYuri/y/pkg/config"
 )
 
 type Config = publicconfig.Config

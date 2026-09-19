@@ -1,8 +1,8 @@
 package openai
 
 import (
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/openai_compatible"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/openai_compatible"
 )
 
 // newCompatible bridges openai.NewCompatible to the openai_compatible package.

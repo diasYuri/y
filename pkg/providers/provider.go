@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // ErrStreamClosed is returned by EventStream.Next after Close has been called.

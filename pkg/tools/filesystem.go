@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yuri/y/pkg/tools/gitignore"
+	"github.com/diasYuri/y/pkg/tools/gitignore"
 )
 
 // FilesystemOptions configures the built-in filesystem tools.

@@ -8,9 +8,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/yuri/y/pkg/ai"
-	pmemory "github.com/yuri/y/pkg/memory"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/ai"
+	pmemory "github.com/diasYuri/y/pkg/memory"
+	"github.com/diasYuri/y/pkg/providers"
 )
 
 // ExtractorProvider is the minimal provider surface needed by the memory

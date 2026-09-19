@@ -7,14 +7,14 @@ import (
 	"os"
 	"path/filepath"
 
-	internalmemory "github.com/yuri/y/internal/memory"
-	"github.com/yuri/y/internal/storage"
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	runtimeconfig "github.com/yuri/y/pkg/config"
-	runtimeextensions "github.com/yuri/y/pkg/extensions"
-	memoryext "github.com/yuri/y/pkg/extensions/memory"
-	"github.com/yuri/y/pkg/tools"
+	internalmemory "github.com/diasYuri/y/internal/memory"
+	"github.com/diasYuri/y/internal/storage"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	runtimeconfig "github.com/diasYuri/y/pkg/config"
+	runtimeextensions "github.com/diasYuri/y/pkg/extensions"
+	memoryext "github.com/diasYuri/y/pkg/extensions/memory"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 const memoryExtensionID = "memory"

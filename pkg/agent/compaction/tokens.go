@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // EstimateTokens returns a rough token count for a message using a

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	ycontext "github.com/yuri/y/pkg/context"
-	pmemory "github.com/yuri/y/pkg/memory"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 type extractorFunc func(context.Context, pmemory.ExtractionRequest) (pmemory.ExtractionResult, error)

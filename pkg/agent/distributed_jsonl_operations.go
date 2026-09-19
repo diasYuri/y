@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 // BeginOperation implements OperationStore using a compare-and-create update

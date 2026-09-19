@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 func TestMemoryTracerPreservesParentAndEvents(t *testing.T) {

@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
 )
 
 // ToolCallHook is called before or after a tool executes.

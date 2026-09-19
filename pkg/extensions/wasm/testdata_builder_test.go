@@ -3,7 +3,7 @@
 package wasm
 
 import (
-	"github.com/yuri/y/pkg/extensions/wasm/wasmtest"
+	"github.com/diasYuri/y/pkg/extensions/wasm/wasmtest"
 )
 
 // buildABIToolModule returns a WASM module that satisfies the ABI by echoing

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	policypkg "github.com/yuri/y/pkg/policy"
+	policypkg "github.com/diasYuri/y/pkg/policy"
 )
 
 func TestRegistryAddListAndHandle(t *testing.T) {

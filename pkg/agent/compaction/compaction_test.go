@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
 )
 
 func TestEstimateTokensEmptyMessage(t *testing.T) {

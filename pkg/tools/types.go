@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/policy"
 )
 
 // Capability names a permission a tool needs before it can run.

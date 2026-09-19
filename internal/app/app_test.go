@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuri/y/internal/feature"
-	"github.com/yuri/y/internal/storage"
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers/providertest"
+	"github.com/diasYuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/storage"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers/providertest"
 )
 
 func TestRunHelp(t *testing.T) {

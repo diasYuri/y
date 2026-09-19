@@ -5,9 +5,9 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/yuri/y/pkg/agent"
-	ycontext "github.com/yuri/y/pkg/context"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/agent"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 // Extension is a runtime extension that installs its own tools, context

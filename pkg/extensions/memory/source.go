@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	ycontext "github.com/yuri/y/pkg/context"
-	pmemory "github.com/yuri/y/pkg/memory"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 // SourceOptions bounds recall and controls fail-open behavior.

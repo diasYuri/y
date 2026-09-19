@@ -1,6 +1,6 @@
 package telemetry
 
-import publictelemetry "github.com/yuri/y/pkg/telemetry"
+import publictelemetry "github.com/diasYuri/y/pkg/telemetry"
 
 type EventKind = publictelemetry.EventKind
 type Event = publictelemetry.Event

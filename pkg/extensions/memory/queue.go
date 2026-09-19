@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	pmemory "github.com/yuri/y/pkg/memory"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 const defaultJobLease = 30 * time.Second

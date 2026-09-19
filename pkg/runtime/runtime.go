@@ -1,6 +1,6 @@
 package runtime
 
-import "github.com/yuri/y/pkg/agent"
+import "github.com/diasYuri/y/pkg/agent"
 
 // Public aliases keep the distributed contract discoverable under pkg/runtime
 // while the execution implementation remains in pkg/agent.

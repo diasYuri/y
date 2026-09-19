@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yuri/y/pkg/agent/branch"
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/agent/branch"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 type fakeStore struct{}

@@ -8,12 +8,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	ycontext "github.com/yuri/y/pkg/context"
-	runtimeextensions "github.com/yuri/y/pkg/extensions"
-	pmemory "github.com/yuri/y/pkg/memory"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	runtimeextensions "github.com/diasYuri/y/pkg/extensions"
+	pmemory "github.com/diasYuri/y/pkg/memory"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 type testStore struct {

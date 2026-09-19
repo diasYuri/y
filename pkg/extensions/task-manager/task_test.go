@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	taskext "github.com/yuri/y/pkg/extensions/task-manager"
-	"github.com/yuri/y/pkg/providers/providertest"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	taskext "github.com/diasYuri/y/pkg/extensions/task-manager"
+	"github.com/diasYuri/y/pkg/providers/providertest"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 func TestManagerRefineAndCompleteParent(t *testing.T) {

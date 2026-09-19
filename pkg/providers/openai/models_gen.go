@@ -3,7 +3,7 @@
 
 package openai
 
-import "github.com/yuri/y/pkg/ai"
+import "github.com/diasYuri/y/pkg/ai"
 
 // curatedModels is the static fallback model list emitted from models.json.
 // Production callers should prefer the live provider models endpoint when

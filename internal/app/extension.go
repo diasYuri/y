@@ -13,9 +13,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/yuri/y/internal/feature"
-	"github.com/yuri/y/internal/storage"
-	"github.com/yuri/y/pkg/extensions/wasm"
+	"github.com/diasYuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/storage"
+	"github.com/diasYuri/y/pkg/extensions/wasm"
 )
 
 // runExtension dispatches the `y extension` subcommands. It is only

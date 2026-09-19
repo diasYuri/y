@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/telemetry"
 )
 
 func (a *Agent) startSpan(ctx context.Context, name string, attributes ...telemetry.Attribute) (context.Context, telemetry.Span) {

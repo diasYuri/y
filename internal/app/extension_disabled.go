@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/yuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/feature"
 )
 
 // runExtension reports that the WASM extension host is not part of this

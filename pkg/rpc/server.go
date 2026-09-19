@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // ServerConfig configures the JSON-RPC server.

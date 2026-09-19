@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/yuri/y/internal/storage"
-	"github.com/yuri/y/pkg/session"
+	"github.com/diasYuri/y/internal/storage"
+	"github.com/diasYuri/y/pkg/session"
 )
 
 func runSession(stdout, stderr io.Writer, args []string) int {

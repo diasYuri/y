@@ -1,6 +1,6 @@
 package branch
 
-import "github.com/yuri/y/pkg/ai"
+import "github.com/diasYuri/y/pkg/ai"
 
 func cloneMessages(messages []ai.Message) []ai.Message {
 	if len(messages) == 0 {

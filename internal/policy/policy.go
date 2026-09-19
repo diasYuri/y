@@ -3,7 +3,7 @@ package policy
 // This package remains as a private compatibility facade for the binary.
 // The canonical policy contracts live in pkg/policy so SDK packages never
 // depend on internal implementation details.
-import publicpolicy "github.com/yuri/y/pkg/policy"
+import publicpolicy "github.com/diasYuri/y/pkg/policy"
 
 type DecisionKind = publicpolicy.DecisionKind
 type ApprovalMode = publicpolicy.ApprovalMode

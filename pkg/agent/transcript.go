@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 func addUsage(dst, src ai.Usage) ai.Usage {

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/policy"
-	"github.com/yuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/telemetry"
 )
 
 // invokeOnError calls the OnError hook (if any). When the hook returns nil,

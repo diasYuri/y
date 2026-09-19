@@ -19,11 +19,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/auth"
-	"github.com/yuri/y/pkg/providers/internal/retryafter"
-	providerstream "github.com/yuri/y/pkg/providers/internal/stream"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/auth"
+	"github.com/diasYuri/y/pkg/providers/internal/retryafter"
+	providerstream "github.com/diasYuri/y/pkg/providers/internal/stream"
 )
 
 const (

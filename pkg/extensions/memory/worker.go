@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	ycontext "github.com/yuri/y/pkg/context"
-	pmemory "github.com/yuri/y/pkg/memory"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 const (

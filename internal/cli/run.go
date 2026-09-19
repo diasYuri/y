@@ -3,8 +3,8 @@ package cli
 import (
 	"io"
 
-	"github.com/yuri/y/internal/app"
-	"github.com/yuri/y/internal/buildinfo"
+	"github.com/diasYuri/y/internal/app"
+	"github.com/diasYuri/y/internal/buildinfo"
 )
 
 // Run executes the y command-line application.

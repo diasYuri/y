@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/yuri/y/internal/buildinfo"
-	"github.com/yuri/y/internal/cli"
+	"github.com/diasYuri/y/internal/buildinfo"
+	"github.com/diasYuri/y/internal/cli"
 )
 
 func main() {

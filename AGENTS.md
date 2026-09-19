@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a Go module (`github.com/yuri/y`) for the `y` runtime. The CLI entrypoint is in `cmd/y`; non-public application, configuration, storage, telemetry, and feature infrastructure belongs in `internal/`. Public-style APIs live under `pkg/`, including agent, AI, provider, tool, RPC, LSP, and optional WASM-extension packages. Shared fixtures are in `testdata/`, examples in `examples/`, documentation in `docs/`, and build/check helpers in `scripts/`. Keep public packages independent from top-level `internal` packages; `scripts/check-architecture.sh` enforces this boundary.
+This is a Go module (`github.com/diasYuri/y`) for the `y` runtime. The CLI entrypoint is in `cmd/y`; non-public application, configuration, storage, telemetry, and feature infrastructure belongs in `internal/`. Public-style APIs live under `pkg/`, including agent, AI, provider, tool, RPC, LSP, and optional WASM-extension packages. Shared fixtures are in `testdata/`, examples in `examples/`, documentation in `docs/`, and build/check helpers in `scripts/`. Keep public packages independent from top-level `internal` packages; `scripts/check-architecture.sh` enforces this boundary.
 
 ## Build, Test, and Development Commands
 

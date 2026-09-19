@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yuri/y/pkg/agent"
-	ycontext "github.com/yuri/y/pkg/context"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/agent"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 type testExtension struct {

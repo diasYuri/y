@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/policy"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/auth"
-	"github.com/yuri/y/pkg/telemetry"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/auth"
+	"github.com/diasYuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 type AgentRunner struct {

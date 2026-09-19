@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	ycontext "github.com/yuri/y/pkg/context"
-	memoryext "github.com/yuri/y/pkg/extensions/memory"
-	pmemory "github.com/yuri/y/pkg/memory"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	memoryext "github.com/diasYuri/y/pkg/extensions/memory"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 func TestFilesystemStorePersistsScopesAndForgetsImmediately(t *testing.T) {

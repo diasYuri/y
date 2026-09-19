@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	ycontext "github.com/yuri/y/pkg/context"
+	ycontext "github.com/diasYuri/y/pkg/context"
 )
 
 // Kind classifies a durable memory item.

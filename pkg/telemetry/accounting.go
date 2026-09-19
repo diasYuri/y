@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // Dimensions identify the execution scope for accounting. Empty dimensions

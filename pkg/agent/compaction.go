@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/yuri/y/pkg/agent/compaction"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/agent/compaction"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/telemetry"
 )
 
 // maybeCompact checks the threshold at a checkpoint-safe turn boundary.

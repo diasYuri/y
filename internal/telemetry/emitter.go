@@ -1,6 +1,6 @@
 package telemetry
 
-import publictelemetry "github.com/yuri/y/pkg/telemetry"
+import publictelemetry "github.com/diasYuri/y/pkg/telemetry"
 
 // The internal package keeps compatibility for the binary's exporter while
 // the canonical SDK contracts live in pkg/telemetry.

@@ -3,8 +3,8 @@
 package app
 
 import (
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/providers/openai_compatible"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/providers/openai_compatible"
 )
 
 func newLocalProvider(opts headlessOptions) (agent.Provider, error) {

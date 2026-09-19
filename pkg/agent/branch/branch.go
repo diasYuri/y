@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // BranchID uniquely identifies a conversation branch.

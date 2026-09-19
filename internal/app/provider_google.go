@@ -3,8 +3,8 @@
 package app
 
 import (
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/providers/google"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/providers/google"
 )
 
 func newGoogleProvider(opts headlessOptions) (agent.Provider, error) {

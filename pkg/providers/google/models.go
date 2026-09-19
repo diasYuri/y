@@ -2,7 +2,7 @@ package google
 
 //go:generate go run ../../../scripts/models-gen -provider google -api google-generative-ai -input models.json -output models_gen.go -package google
 
-import "github.com/yuri/y/pkg/ai"
+import "github.com/diasYuri/y/pkg/ai"
 
 // CuratedModels returns a copy of the build-time curated model list.
 func CuratedModels() []ai.Model {

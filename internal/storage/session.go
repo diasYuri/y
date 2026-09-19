@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
-	publicsession "github.com/yuri/y/pkg/session"
+	"github.com/diasYuri/y/pkg/ai"
+	publicsession "github.com/diasYuri/y/pkg/session"
 )
 
 const sessionFormatVersion = 1

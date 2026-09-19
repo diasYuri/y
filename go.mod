@@ -1,4 +1,4 @@
-module github.com/yuri/y
+module github.com/diasYuri/y
 
 go 1.25.0
 
@@ -8,9 +8,9 @@ require (
 	github.com/openai/openai-go/v3 v3.52.0
 	github.com/tetratelabs/wazero v1.11.0
 	google.golang.org/genai v1.69.0
-	modernc.org/sqlite v1.50.0
 	google.golang.org/grpc v1.66.2
 	google.golang.org/protobuf v1.34.2
+	modernc.org/sqlite v1.50.0
 )
 
 require (

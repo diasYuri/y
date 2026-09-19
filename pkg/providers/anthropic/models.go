@@ -2,7 +2,7 @@ package anthropic
 
 //go:generate go run ../../../scripts/models-gen -provider anthropic -api anthropic-messages -input models.json -output models_gen.go -package anthropic
 
-import "github.com/yuri/y/pkg/ai"
+import "github.com/diasYuri/y/pkg/ai"
 
 // CuratedModels returns a copy of the build-time curated model list. It is
 // the canonical fallback list used when the live API is unreachable. Each

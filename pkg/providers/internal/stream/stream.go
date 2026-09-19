@@ -10,9 +10,9 @@ import (
 	"io"
 	"sync"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/internal/sse"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/internal/sse"
 )
 
 // Consumer converts one decoded SSE data payload to zero or more normalized

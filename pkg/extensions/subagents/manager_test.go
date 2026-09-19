@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/extensions/subagents"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/providertest"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/extensions/subagents"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/providertest"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 func TestManager_ExecutesChildrenWithBoundedConcurrency(t *testing.T) {

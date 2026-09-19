@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/yuri/y/internal/auth"
-	"github.com/yuri/y/internal/feature"
-	"github.com/yuri/y/pkg/agent"
+	"github.com/diasYuri/y/internal/auth"
+	"github.com/diasYuri/y/internal/feature"
+	"github.com/diasYuri/y/pkg/agent"
 )
 
 func defaultHeadlessProviderFactory(_ context.Context, compiled *feature.Registry, opts headlessOptions) (agent.Provider, error) {

@@ -1,8 +1,8 @@
-module github.com/yuri/y/examples/coding-agent
+module github.com/diasYuri/y/examples/coding-agent
 
 go 1.25.0
 
-require github.com/yuri/y v0.0.0
+require github.com/diasYuri/y v0.0.0
 
 require (
 	github.com/openai/openai-go/v3 v3.52.0 // indirect
@@ -12,4 +12,4 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 )
 
-replace github.com/yuri/y => ../..
+replace github.com/diasYuri/y => ../..

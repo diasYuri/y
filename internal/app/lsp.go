@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuri/y/pkg/lsp"
+	"github.com/diasYuri/y/pkg/lsp"
 )
 
 func runLSP(stdout, stderr io.Writer, args []string) int {

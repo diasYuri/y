@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/agent"
 )
 
 type runtimeHookManager struct{ calls int }

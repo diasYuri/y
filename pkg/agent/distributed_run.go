@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/providers/auth"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/providers/auth"
 )
 
 func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse, error) {

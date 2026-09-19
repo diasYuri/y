@@ -22,10 +22,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers/openai"
-	"github.com/yuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers/openai"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 func main() {

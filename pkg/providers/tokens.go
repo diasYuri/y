@@ -3,7 +3,7 @@ package providers
 import (
 	"unicode/utf8"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // EstimateTokens returns a fast, model-agnostic token estimate for an

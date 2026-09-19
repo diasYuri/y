@@ -3,8 +3,8 @@ package memory
 import (
 	"context"
 
-	ycontext "github.com/yuri/y/pkg/context"
-	pmemory "github.com/yuri/y/pkg/memory"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
 // NoopStore implements stateless memory. It never touches disk and treats

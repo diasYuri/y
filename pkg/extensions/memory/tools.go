@@ -6,9 +6,9 @@ import (
 	"errors"
 	"strings"
 
-	ycontext "github.com/yuri/y/pkg/context"
-	pmemory "github.com/yuri/y/pkg/memory"
-	"github.com/yuri/y/pkg/tools"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	pmemory "github.com/diasYuri/y/pkg/memory"
+	"github.com/diasYuri/y/pkg/tools"
 )
 
 const (

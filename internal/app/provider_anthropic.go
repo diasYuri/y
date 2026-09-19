@@ -3,8 +3,8 @@
 package app
 
 import (
-	"github.com/yuri/y/pkg/agent"
-	"github.com/yuri/y/pkg/providers/anthropic"
+	"github.com/diasYuri/y/pkg/agent"
+	"github.com/diasYuri/y/pkg/providers/anthropic"
 )
 
 func newAnthropicProvider(opts headlessOptions) (agent.Provider, error) {

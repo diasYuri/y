@@ -3,7 +3,7 @@ package branch
 import (
 	"testing"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 func TestBranchManagerMain(t *testing.T) {

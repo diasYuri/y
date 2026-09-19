@@ -8,8 +8,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/yuri/y/internal/auth"
-	"github.com/yuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/auth"
+	"github.com/diasYuri/y/internal/feature"
 )
 
 func runAuth(stdout, stderr io.Writer, args []string, compiled *feature.Registry) int {

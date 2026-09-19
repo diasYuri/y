@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 type assistantBuilder struct {

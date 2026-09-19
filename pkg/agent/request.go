@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
-	"github.com/yuri/y/pkg/providers"
-	"github.com/yuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/telemetry"
 )
 
 // errBeforeRequestSwallowed signals that a BeforeRequest hook returned an

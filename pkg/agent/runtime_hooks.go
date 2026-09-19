@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/yuri/y/pkg/agent/compaction"
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/agent/compaction"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // RuntimeIdentity identifies the run and session associated with a lifecycle

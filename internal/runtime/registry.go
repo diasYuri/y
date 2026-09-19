@@ -3,13 +3,13 @@ package runtime
 import (
 	"context"
 
-	"github.com/yuri/y/internal/feature"
-	"github.com/yuri/y/pkg/policy"
-	"github.com/yuri/y/pkg/telemetry"
-	"github.com/yuri/y/pkg/tools"
-	"github.com/yuri/y/pkg/tools/filesystem"
-	"github.com/yuri/y/pkg/tools/git"
-	"github.com/yuri/y/pkg/tools/shell"
+	"github.com/diasYuri/y/internal/feature"
+	"github.com/diasYuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/telemetry"
+	"github.com/diasYuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/tools/filesystem"
+	"github.com/diasYuri/y/pkg/tools/git"
+	"github.com/diasYuri/y/pkg/tools/shell"
 )
 
 // BuildToolRegistry creates the binary's tool registry from compiled features.

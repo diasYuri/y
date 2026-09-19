@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yuri/y/pkg/extensions/wasm"
-	"github.com/yuri/y/pkg/extensions/wasm/wasmtest"
+	"github.com/diasYuri/y/pkg/extensions/wasm"
+	"github.com/diasYuri/y/pkg/extensions/wasm/wasmtest"
 )
 
 const exampleID = "y.examples.hello"

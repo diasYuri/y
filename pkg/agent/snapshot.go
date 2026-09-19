@@ -4,10 +4,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/yuri/y/pkg/ai"
-	ycontext "github.com/yuri/y/pkg/context"
-	"github.com/yuri/y/pkg/policy"
-	"github.com/yuri/y/pkg/providers"
+	"github.com/diasYuri/y/pkg/ai"
+	ycontext "github.com/diasYuri/y/pkg/context"
+	"github.com/diasYuri/y/pkg/policy"
+	"github.com/diasYuri/y/pkg/providers"
 )
 
 // AgentSnapshot captures the in-memory state of an [Agent] required to

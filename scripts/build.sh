@@ -207,13 +207,13 @@ build_one() {
 
 	local ldflags
 	ldflags="-s -w"
-	ldflags+=" -X github.com/yuri/y/internal/buildinfo.version=${version}"
-	ldflags+=" -X github.com/yuri/y/internal/buildinfo.commit=${commit}"
-	ldflags+=" -X github.com/yuri/y/internal/buildinfo.date=${build_date}"
+	ldflags+=" -X github.com/diasYuri/y/internal/buildinfo.version=${version}"
+	ldflags+=" -X github.com/diasYuri/y/internal/buildinfo.commit=${commit}"
+	ldflags+=" -X github.com/diasYuri/y/internal/buildinfo.date=${build_date}"
 	# Tags are stored comma-separated in the binary so `y doctor` can show them.
 	local tag_csv
 	tag_csv="$(echo "${tags}" | tr ' ' ',')"
-	ldflags+=" -X github.com/yuri/y/internal/buildinfo.tags=${tag_csv}"
+	ldflags+=" -X github.com/diasYuri/y/internal/buildinfo.tags=${tag_csv}"
 
 	local cmd_dir="${REPO_ROOT}/cmd/${bin}"
 	if [ ! -d "${cmd_dir}" ]; then

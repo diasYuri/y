@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/yuri/y/internal/buildinfo"
-	"github.com/yuri/y/internal/feature"
+	"github.com/diasYuri/y/internal/buildinfo"
+	"github.com/diasYuri/y/internal/feature"
 )
 
 // DoctorReport is the stable JSON schema returned by `y doctor --json`.

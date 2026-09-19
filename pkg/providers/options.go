@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/yuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/ai"
 )
 
 // ApplyMiddlewares wraps base with the supplied middlewares in registration
