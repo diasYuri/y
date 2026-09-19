@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -200,6 +201,10 @@ func runConfigValidate(stdout, stderr io.Writer, args []string, compiled *featur
 		fmt.Fprintf(stderr, "y config validate: %v\n", err)
 		return 1
 	}
+	if err := validateConfiguredExtensions(cfg); err != nil {
+		fmt.Fprintf(stderr, "y config validate: %v\n", err)
+		return 1
+	}
 	fmt.Fprintln(stdout, "configuration valid")
 	return 0
 }
@@ -264,6 +269,27 @@ func runConfigShow(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprintln(stdout, "Limits:")
 		for name, value := range cfg.Limits {
 			fmt.Fprintf(stdout, "  %s: %d\n", name, value)
+		}
+		fmt.Fprintln(stdout)
+	}
+
+	if len(cfg.Extensions) > 0 {
+		fmt.Fprintln(stdout, "Extensions:")
+		extensionIDs := make([]string, 0, len(cfg.Extensions))
+		for id := range cfg.Extensions {
+			extensionIDs = append(extensionIDs, id)
+		}
+		sort.Strings(extensionIDs)
+		for _, id := range extensionIDs {
+			fmt.Fprintf(stdout, "  %s:\n", id)
+			keys := make([]string, 0, len(cfg.Extensions[id]))
+			for key := range cfg.Extensions[id] {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				fmt.Fprintf(stdout, "    %s: %s\n", key, cfg.Extensions[id][key])
+			}
 		}
 		fmt.Fprintln(stdout)
 	}

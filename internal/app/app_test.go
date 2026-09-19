@@ -325,7 +325,7 @@ func TestRunCommandStreamsTextAndSavesSession(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := runHeadlessCommand("run", &stdout, &stderr, strings.NewReader(""), false, []string{"hello"}, feature.NewRegistry(), factory)
+	code := runHeadlessCommand("run", &stdout, &stderr, strings.NewReader(""), false, []string{"--disable-extension=memory", "hello"}, feature.NewRegistry(), factory)
 	if code != 0 {
 		t.Fatalf("runHeadlessCommand returned code %d, want 0", code)
 	}
@@ -366,7 +366,7 @@ func TestChatCommandStreamsMultipleTurnsWithoutTUI(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := runHeadlessCommand("chat", &stdout, &stderr, strings.NewReader("second prompt\n"), false, []string{"first prompt"}, feature.NewRegistry(), factory)
+	code := runHeadlessCommand("chat", &stdout, &stderr, strings.NewReader("second prompt\n"), false, []string{"--disable-extension=memory", "first prompt"}, feature.NewRegistry(), factory)
 	if code != 0 {
 		t.Fatalf("runHeadlessCommand returned code %d, want 0", code)
 	}

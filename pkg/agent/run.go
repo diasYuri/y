@@ -74,9 +74,11 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 	defer func() {
 		a.mu.Lock()
 		state := a.state
+		identity := RuntimeIdentity{RunID: a.runID, SessionID: a.sessionID}
 		a.mu.Unlock()
 		a.emit(Event{Kind: EventAgentSettled, State: state})
 		_ = a.notifySession(context.Background(), state)
+		a.applyAfterRun(WithRuntimeIdentity(context.Background(), identity), a.snapshotResult(RunResult{State: state}, state))
 		if state == StateCanceled {
 			a.emit(Event{Kind: EventAbortCompleted, State: state})
 		}
@@ -115,6 +117,9 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 	}
 
 	runCtx, cancel := context.WithCancel(spanCtx)
+	a.mu.Lock()
+	runCtx = WithRuntimeIdentity(runCtx, RuntimeIdentity{RunID: a.runID, SessionID: a.sessionID})
+	a.mu.Unlock()
 	a.abortMu.Lock()
 	a.abortFunc = cancel
 	a.abortMu.Unlock()

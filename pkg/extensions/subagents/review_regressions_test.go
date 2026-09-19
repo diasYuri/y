@@ -166,7 +166,7 @@ func TestManager_RetriesTerminalPersistence(t *testing.T) {
 	if result.Status != subagents.StatusCompleted || !strings.Contains(result.Error, subagents.ErrPersistence.Error()) {
 		t.Fatalf("in-memory result = %#v, want completed with persistence error", result)
 	}
-	stored, err := store.Store.Load(context.Background(), child.ID)
+	stored, err := store.Load(context.Background(), child.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestManager_RetriesTerminalPersistence(t *testing.T) {
 	if err := manager.RetryPersistence(context.Background(), "parent", child.ID); err != nil {
 		t.Fatal(err)
 	}
-	stored, err = store.Store.Load(context.Background(), child.ID)
+	stored, err = store.Load(context.Background(), child.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

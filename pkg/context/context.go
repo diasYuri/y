@@ -27,11 +27,14 @@ const (
 // Request contains stable identity and budgeting information supplied to
 // every source. Sources decide which scopes they can answer.
 type Request struct {
-	TenantID     string `json:"tenant_id,omitempty"`
-	WorkspaceID  string `json:"workspace_id,omitempty"`
-	ProjectID    string `json:"project_id,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
-	RequestID    string `json:"request_id,omitempty"`
+	TenantID    string `json:"tenant_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
+	SessionID   string `json:"session_id,omitempty"`
+	RequestID   string `json:"request_id,omitempty"`
+	// Query is the latest relevant user text used by search-backed sources.
+	// It is input data, not an instruction or a persisted transcript field.
+	Query        string `json:"query,omitempty"`
 	MaxTokens    int64  `json:"max_tokens,omitempty"`
 	BasePrompt   string `json:"base_prompt,omitempty"`
 	AppendPrompt string `json:"append_prompt,omitempty"`
@@ -170,7 +173,7 @@ func (r *Resolver) Invalidate() {
 
 func (r *Resolver) cacheKey(ctx context.Context, request Request, sources []ContextSource) (string, []string, error) {
 	versions := make([]string, len(sources))
-	parts := []string{request.TenantID, request.WorkspaceID, request.ProjectID, request.SessionID, request.RequestID, fmt.Sprint(request.MaxTokens), request.BasePrompt, request.AppendPrompt}
+	parts := []string{request.TenantID, request.WorkspaceID, request.ProjectID, request.SessionID, request.RequestID, request.Query, fmt.Sprint(request.MaxTokens), request.BasePrompt, request.AppendPrompt}
 	for i, source := range sources {
 		name := sourceName(source, i)
 		version := ""

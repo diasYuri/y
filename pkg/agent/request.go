@@ -69,6 +69,7 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 		if contextRequest.BasePrompt == "" {
 			contextRequest.BasePrompt = systemPrompt
 		}
+		contextRequest.Query = latestUserQuery(transcript)
 		resolved, resolveErr := contextResolver.Resolve(ctx, contextRequest)
 		if resolveErr != nil {
 			return ai.Message{}, ai.Usage{}, ai.StopReasonStop, resolveErr
@@ -293,6 +294,23 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 	a.recordAccounting(measurement)
 
 	return message, usage, stopReason, nil
+}
+
+func latestUserQuery(messages []ai.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != ai.RoleUser {
+			continue
+		}
+		var builder strings.Builder
+		for _, block := range messages[i].Content {
+			if block.Type == ai.ContentText {
+				builder.WriteString(block.Text)
+				builder.WriteByte(' ')
+			}
+		}
+		return strings.TrimSpace(builder.String())
+	}
+	return ""
 }
 
 func applyStructuredOutput(message *ai.Message, request providers.StreamRequest, providerID string) error {

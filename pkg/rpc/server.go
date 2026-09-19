@@ -24,6 +24,7 @@ type ServerConfig struct {
 	ToolRegistry agent.ToolRegistry
 	Model        ai.Model
 	SystemPrompt string
+	AgentOptions []agent.Option
 }
 
 // Server is a JSON-RPC HTTP server that exposes agent functionality.
@@ -65,13 +66,14 @@ func (s *Server) sessionAgentLocked(sess *session) *agent.Agent {
 	}
 	msgs := make([]ai.Message, len(sess.transcript))
 	copy(msgs, sess.transcript)
-	opts := []agent.Option{}
+	opts := append([]agent.Option(nil), s.cfg.AgentOptions...)
 	if s.cfg.SystemPrompt != "" {
 		opts = append(opts, agent.WithSystemPrompt(s.cfg.SystemPrompt))
 	}
 	if s.cfg.Model.ID != "" {
 		opts = append(opts, agent.WithModel(s.cfg.Model))
 	}
+	opts = append(opts, agent.WithSessionID(sess.id), agent.WithContextIdentity("", "", "", sess.id, ""))
 	var registry agent.ToolRegistry
 	if s.cfg.ToolRegistry != nil {
 		registry = s.cfg.ToolRegistry

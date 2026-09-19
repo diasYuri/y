@@ -7,6 +7,34 @@ import (
 	"github.com/yuri/y/pkg/ai"
 )
 
+// RuntimeIdentity identifies the run and session associated with a lifecycle
+// hook invocation. It is carried through context so extensions can isolate
+// per-run state without changing the generic hook signatures.
+type RuntimeIdentity struct {
+	RunID     string
+	SessionID string
+}
+
+type runtimeIdentityKey struct{}
+
+// WithRuntimeIdentity attaches an execution identity to ctx.
+func WithRuntimeIdentity(ctx context.Context, identity RuntimeIdentity) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, runtimeIdentityKey{}, identity)
+}
+
+// RuntimeIdentityFromContext returns the execution identity attached by the
+// agent runtime, if any.
+func RuntimeIdentityFromContext(ctx context.Context) (RuntimeIdentity, bool) {
+	if ctx == nil {
+		return RuntimeIdentity{}, false
+	}
+	identity, ok := ctx.Value(runtimeIdentityKey{}).(RuntimeIdentity)
+	return identity, ok
+}
+
 // TurnContext identifies one provider/tool turn in a run.
 type TurnContext struct {
 	RunID     string
@@ -50,9 +78,13 @@ type RuntimeHooks struct {
 	BeforeCompaction func(context.Context) error
 	AfterCompaction  func(context.Context, compaction.Result, error)
 	OnSession        func(context.Context, SessionEvent) error
-	BeforeComplete   BeforeCompleteHook
-	Resources        ResourceProvider
-	Tools            RequestToolProvider
+	// AfterRun is called best-effort after the run settles. RunResult.Messages
+	// is a deep copy of the complete transcript at that point. Hook errors are
+	// diagnostic and never replace the primary run result.
+	AfterRun       func(context.Context, RunResult) error
+	BeforeComplete BeforeCompleteHook
+	Resources      ResourceProvider
+	Tools          RequestToolProvider
 }
 
 func (a *Agent) hooksSnapshot() []RuntimeHooks {
@@ -130,4 +162,12 @@ func (a *Agent) applyAfterModel(ctx context.Context, model ai.Model, hookErr err
 		}
 	}
 	return hookErr
+}
+
+func (a *Agent) applyAfterRun(ctx context.Context, result RunResult) {
+	for _, hooks := range a.hooksSnapshot() {
+		if hooks.AfterRun != nil {
+			_ = hooks.AfterRun(ctx, result)
+		}
+	}
 }

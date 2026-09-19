@@ -75,6 +75,7 @@ type ServerConfig struct {
 	ToolRegistry agent.ToolRegistry
 	Model        ai.Model
 	SystemPrompt string
+	AgentOptions []agent.Option
 }
 
 // Server is an unavailable RPC server for builds without feature_rpc.

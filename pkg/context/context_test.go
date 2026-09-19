@@ -42,3 +42,25 @@ func TestResolverItemsMatchTokenBudgetSelection(t *testing.T) {
 		t.Fatalf("budget result = %#v, want skipped item omitted", result)
 	}
 }
+
+func TestResolverCacheKeyIncludesQuery(t *testing.T) {
+	source := &querySource{}
+	resolver := NewResolver(source)
+	first, err := resolver.Resolve(context.Background(), Request{Query: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := resolver.Resolve(context.Background(), Request{Query: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Fingerprint == second.Fingerprint || first.Items[0].Content == second.Items[0].Content {
+		t.Fatalf("query results were cached together: %#v / %#v", first, second)
+	}
+}
+
+type querySource struct{}
+
+func (*querySource) Load(_ context.Context, request Request) ([]Item, error) {
+	return []Item{{ID: "query", Content: request.Query, Scope: ScopeRequest}}, nil
+}

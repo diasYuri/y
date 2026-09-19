@@ -90,4 +90,56 @@ func TestGenerateDefault(t *testing.T) {
 			t.Fatalf("default config missing %s", section)
 		}
 	}
+	if strings.Contains(got, "[memory]") || strings.Contains(got, "[extensions.memory]") {
+		t.Fatal("default config must not select a built-in extension")
+	}
+}
+
+func TestParseExtensionConfig(t *testing.T) {
+	cfg, err := Parse(strings.NewReader(`[extensions.memory]
+enabled = true
+mode = "automatic"
+profile = "stateless"
+backend = "noop"
+directory = "/tmp/y-memory"
+max_items = 7
+max_context_tokens = 900
+max_read_bytes = 1234
+auto_extract = false
+dedicated_tools = true
+fail_open = false
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory := cfg.Extensions["memory"]
+	if memory["enabled"] != "true" || memory["mode"] != "automatic" || memory["profile"] != "stateless" || memory["backend"] != "noop" {
+		t.Fatalf("memory config = %#v", memory)
+	}
+	if memory["max_items"] != "7" || memory["max_context_tokens"] != "900" || memory["max_read_bytes"] != "1234" || memory["auto_extract"] != "false" || memory["dedicated_tools"] != "true" || memory["fail_open"] != "false" {
+		t.Fatalf("memory limits/options = %#v", memory)
+	}
+	if err := Validate(cfg, testCapabilities{}); err != nil {
+		t.Fatalf("Validate extension config: %v", err)
+	}
+}
+
+func TestParseRejectsLegacyMemorySection(t *testing.T) {
+	_, err := Parse(strings.NewReader("[memory]\nenabled = true\n"))
+	if err == nil || !strings.Contains(err.Error(), `unsupported section "memory"`) {
+		t.Fatalf("Parse error = %v, want legacy memory section rejection", err)
+	}
+}
+
+func TestApplyEnvironmentDoesNotKnowExtensions(t *testing.T) {
+	cfg := Config{Extensions: map[string]map[string]string{"memory": {"enabled": "true"}}}
+	got := ApplyEnvironment(cfg, func(key string) string {
+		if key == "Y_MEMORY" {
+			return "false"
+		}
+		return ""
+	})
+	if got.Extensions["memory"]["enabled"] != "true" {
+		t.Fatal("core config must not interpret extension environment variables")
+	}
 }

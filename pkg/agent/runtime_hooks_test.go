@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yuri/y/pkg/ai"
 	"github.com/yuri/y/pkg/policy"
@@ -92,5 +94,28 @@ func TestAgentCompactsAndRetriesProviderOverflow(t *testing.T) {
 	}
 	if provider.CallCount() != 3 || result.Messages[len(result.Messages)-1].Content[0].Text != "recovered" {
 		t.Fatalf("calls=%d result=%#v", provider.CallCount(), result)
+	}
+}
+
+func TestAfterRunReceivesCompleteTranscriptBestEffort(t *testing.T) {
+	provider := providertest.NewFakeProvider(providertest.WithFakeResponses(providertest.FakeResponse{Events: []ai.Event{ai.TextDelta{Text: "answer"}, ai.StopEvent{Reason: ai.StopReasonStop}}}))
+	var got RunResult
+	called := make(chan struct{}, 1)
+	agent := New(provider, tools.NewRegistry(), WithRuntimeHooks(RuntimeHooks{AfterRun: func(_ context.Context, result RunResult) error {
+		got = result
+		called <- struct{}{}
+		return errors.New("diagnostic only")
+	}}))
+	result, err := agent.Run(context.Background(), "question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("AfterRun was not called")
+	}
+	if len(got.Messages) != len(result.Messages) || got.Messages[len(got.Messages)-1].Role != ai.RoleAssistant {
+		t.Fatalf("AfterRun result = %#v", got)
 	}
 }

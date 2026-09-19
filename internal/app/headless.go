@@ -17,6 +17,7 @@ import (
 	"github.com/yuri/y/internal/telemetry"
 	"github.com/yuri/y/pkg/agent"
 	"github.com/yuri/y/pkg/ai"
+	runtimeextensions "github.com/yuri/y/pkg/extensions"
 	"github.com/yuri/y/pkg/policy"
 	"github.com/yuri/y/pkg/session"
 	"github.com/yuri/y/pkg/tools"
@@ -32,12 +33,14 @@ const (
 )
 
 type headlessOptions struct {
-	providerName string
-	model        string
-	apiKey       string
-	systemPrompt string
-	sessionDir   string
-	noSession    bool
+	providerName       string
+	model              string
+	apiKey             string
+	systemPrompt       string
+	sessionDir         string
+	noSession          bool
+	disabledExtensions map[string]bool
+	extensionSettings  map[string]map[string]string
 }
 
 type headlessProviderFactory func(context.Context, *feature.Registry, headlessOptions) (agent.Provider, error)
@@ -197,25 +200,22 @@ func runHeadlessCommand(
 		return agentInstance.Run(ctx, prompt)
 	}
 
+	var prompt string
+	var inputPrompts []string
 	switch mode {
 	case "run":
-		prompt, promptErr := collectRunPrompt(stdin, stdinTTY, promptArgs)
+		promptValue, promptErr := collectRunPrompt(stdin, stdinTTY, promptArgs)
 		if promptErr != nil {
 			fmt.Fprintf(stderr, "y run: %v\n", promptErr)
 			return exitCodeUsage
 		}
+		prompt = promptValue
 		if prompt == "" {
 			fmt.Fprintln(stderr, "y run: prompt is required")
 			return exitCodeUsage
 		}
-		provider, registry, runtimeCode := prepareHeadlessRuntime(ctx, mode, stderr, providerFactory, compiled, opts, cwd)
-		if runtimeCode != 0 {
-			return runtimeCode
-		}
-		return executeHeadlessTurn(ctx, stderr, run, provider, registry, agentOpts, sessionStore, cwd, prompt, opts.noSession, streamWriter)
-
 	case "chat":
-		inputPrompts := append([]string(nil), promptArgs...)
+		inputPrompts = append([]string(nil), promptArgs...)
 		if !stdinTTY {
 			var promptErr error
 			inputPrompts, promptErr = collectChatPrompts(stdin, promptArgs)
@@ -224,26 +224,30 @@ func runHeadlessCommand(
 				return exitCodeExecution
 			}
 		}
-		if stdinTTY {
-			provider, registry, runtimeCode := prepareHeadlessRuntime(ctx, mode, stderr, providerFactory, compiled, opts, cwd)
-			if runtimeCode != 0 {
-				return runtimeCode
-			}
-			return runInteractiveChat(ctx, stderr, stdin, run, provider, registry, agentOpts, sessionStore, cwd, inputPrompts, opts.noSession, streamWriter)
-		}
-		if len(inputPrompts) == 0 {
+		if !stdinTTY && len(inputPrompts) == 0 {
 			fmt.Fprintln(stderr, "y chat: prompt or stdin content is required")
 			return exitCodeUsage
 		}
-		provider, registry, runtimeCode := prepareHeadlessRuntime(ctx, mode, stderr, providerFactory, compiled, opts, cwd)
-		if runtimeCode != 0 {
-			return runtimeCode
-		}
-		return executeChatPrompts(ctx, stderr, run, provider, registry, agentOpts, sessionStore, cwd, inputPrompts, opts.noSession, streamWriter)
 	default:
 		fmt.Fprintf(stderr, "y %s: unsupported headless mode\n", mode)
 		return exitCodeUsage
 	}
+
+	provider, registry, extensionHost, runtimeCode := prepareHeadlessRuntime(ctx, mode, stderr, providerFactory, compiled, opts, cwd)
+	if runtimeCode != 0 {
+		return runtimeCode
+	}
+	defer func() { _ = extensionHost.Close(context.Background()) }()
+	agentOpts = append(agentOpts, agent.WithContextIdentity("", cwd, cwd, "", ""))
+	agentOpts = append(agentOpts, extensionHost.AgentOptions()...)
+
+	if mode == "run" {
+		return executeHeadlessTurn(ctx, stderr, run, provider, registry, agentOpts, sessionStore, cwd, prompt, opts.noSession, streamWriter)
+	}
+	if stdinTTY {
+		return runInteractiveChat(ctx, stderr, stdin, run, provider, registry, agentOpts, sessionStore, cwd, inputPrompts, opts.noSession, streamWriter)
+	}
+	return executeChatPrompts(ctx, stderr, run, provider, registry, agentOpts, sessionStore, cwd, inputPrompts, opts.noSession, streamWriter)
 }
 
 func prepareHeadlessRuntime(
@@ -254,18 +258,28 @@ func prepareHeadlessRuntime(
 	compiled *feature.Registry,
 	opts headlessOptions,
 	cwd string,
-) (agent.Provider, *tools.Registry, int) {
+) (agent.Provider, *tools.Registry, *runtimeextensions.Host, int) {
 	provider, err := providerFactory(ctx, compiled, opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
-		return nil, nil, headlessExitCode(err)
+		return nil, nil, nil, headlessExitCode(err)
 	}
 	registry, err := buildHeadlessRegistry(ctx, compiled, cwd)
 	if err != nil {
 		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
-		return nil, nil, headlessExitCode(err)
+		return nil, nil, nil, headlessExitCode(err)
 	}
-	return provider, registry, 0
+	cfg, err := loadRuntimeConfig()
+	if err != nil {
+		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
+		return nil, nil, nil, exitCodeConfig
+	}
+	host, err := buildExtensionHost(ctx, cfg, opts, provider, cwd, registry)
+	if err != nil {
+		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
+		return nil, nil, nil, exitCodeConfig
+	}
+	return provider, registry, host, 0
 }
 
 func executeHeadlessTurn(
@@ -531,6 +545,50 @@ func parseHeadlessArgs(mode string, stdout, stderr io.Writer, args []string) (he
 					return headlessOptions{}, nil, false
 				}
 				opts.noSession = true
+			case "disable-extension":
+				if !hasValue {
+					if i+1 >= len(args) {
+						fmt.Fprintf(stderr, "y %s: --%s requires a value\n", mode, name)
+						return headlessOptions{}, nil, false
+					}
+					i++
+					value = args[i]
+				}
+				value = strings.TrimSpace(value)
+				if value == "" {
+					fmt.Fprintf(stderr, "y %s: --disable-extension requires a non-empty extension ID\n", mode)
+					return headlessOptions{}, nil, false
+				}
+				if opts.disabledExtensions == nil {
+					opts.disabledExtensions = make(map[string]bool)
+				}
+				opts.disabledExtensions[value] = true
+			case "extension-setting":
+				if !hasValue {
+					if i+1 >= len(args) {
+						fmt.Fprintf(stderr, "y %s: --%s requires a value\n", mode, name)
+						return headlessOptions{}, nil, false
+					}
+					i++
+					value = args[i]
+				}
+				path, settingValue, ok := strings.Cut(value, "=")
+				if !ok {
+					fmt.Fprintf(stderr, "y %s: --extension-setting requires <extension>.<key>=<value>\n", mode)
+					return headlessOptions{}, nil, false
+				}
+				extensionID, key, ok := strings.Cut(path, ".")
+				if !ok || strings.TrimSpace(extensionID) == "" || strings.TrimSpace(key) == "" || strings.Contains(key, ".") {
+					fmt.Fprintf(stderr, "y %s: invalid extension setting %q\n", mode, path)
+					return headlessOptions{}, nil, false
+				}
+				if opts.extensionSettings == nil {
+					opts.extensionSettings = make(map[string]map[string]string)
+				}
+				if opts.extensionSettings[extensionID] == nil {
+					opts.extensionSettings[extensionID] = make(map[string]string)
+				}
+				opts.extensionSettings[extensionID][key] = settingValue
 			default:
 				fmt.Fprintf(stderr, "y %s: unknown flag --%s\n", mode, name)
 				return headlessOptions{}, nil, false
@@ -611,4 +669,6 @@ func printHeadlessUsage(w io.Writer, mode string) {
 	fmt.Fprintln(w, "  --system-prompt <text>   Override the system prompt.")
 	fmt.Fprintln(w, "  --session-dir <dir>     Override the session storage directory.")
 	fmt.Fprintln(w, "  --no-session            Disable session persistence.")
+	fmt.Fprintln(w, "  --disable-extension <id> Disable an installed extension.")
+	fmt.Fprintln(w, "  --extension-setting <extension>.<key>=<value> Override an extension setting.")
 }

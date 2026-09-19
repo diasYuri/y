@@ -1002,7 +1002,7 @@ func (m *Manager) finishLocked(entry *job, status Status, result Result) {
 }
 
 func persistenceError(err error) error {
-	return fmt.Errorf("%w: %v", ErrPersistence, err)
+	return fmt.Errorf("%w: %w", ErrPersistence, err)
 }
 
 func (m *Manager) signalLocked() {

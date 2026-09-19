@@ -34,6 +34,7 @@ type Config struct {
 	Providers   map[string]bool
 	Tools       map[string]bool
 	Limits      map[string]int64
+	Extensions  map[string]map[string]string
 	OfflineMode bool
 	Telemetry   bool
 }
@@ -78,17 +79,19 @@ func LoadFileWithLookup(path string, lookup func(string) string) (Config, error)
 }
 
 // Parse reads the subset of TOML used by y's declarative config. It supports
-// bare keys in [features], [providers], [tools], and [limits] with boolean or
-// integer scalar values.
+// bare keys in [features], [providers], [tools], and [limits], plus generic
+// extension sections such as [extensions.memory]. Extension values are kept as
+// canonical strings so each extension owns its schema and validation.
 func Parse(r io.Reader) (Config, error) {
 	cfg := Config{
-		Features:  make(map[string]bool),
-		Providers: make(map[string]bool),
-		Tools:     make(map[string]bool),
-		Limits:    make(map[string]int64),
+		Features:   make(map[string]bool),
+		Providers:  make(map[string]bool),
+		Tools:      make(map[string]bool),
+		Limits:     make(map[string]int64),
+		Extensions: make(map[string]map[string]string),
 	}
 
-	var section string
+	var section, extensionID string
 	scanner := bufio.NewScanner(r)
 	for lineNo := 1; scanner.Scan(); lineNo++ {
 		raw := stripComment(scanner.Text())
@@ -102,8 +105,17 @@ func Parse(r io.Reader) (Config, error) {
 				return Config{}, parseError(lineNo, "invalid section header", nil)
 			}
 			section = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "["), "]"))
-			switch section {
-			case "features", "providers", "tools", "limits":
+			extensionID = ""
+			switch {
+			case section == "features", section == "providers", section == "tools", section == "limits":
+			case strings.HasPrefix(section, "extensions."):
+				extensionID = strings.TrimPrefix(section, "extensions.")
+				if !validBareKey(extensionID) || strings.Contains(extensionID, ".") {
+					return Config{}, parseError(lineNo, fmt.Sprintf("invalid extension section %q", section), nil)
+				}
+				if cfg.Extensions[extensionID] == nil {
+					cfg.Extensions[extensionID] = make(map[string]string)
+				}
 			default:
 				return Config{}, parseError(lineNo, fmt.Sprintf("unsupported section %q", section), nil)
 			}
@@ -149,6 +161,15 @@ func Parse(r io.Reader) (Config, error) {
 				return Config{}, parseError(lineNo, fmt.Sprintf("limit %q must be a non-negative integer", key), err)
 			}
 			cfg.Limits[key] = v
+		default:
+			if extensionID == "" {
+				return Config{}, parseError(lineNo, fmt.Sprintf("unsupported section %q", section), nil)
+			}
+			parsed, err := parseExtensionScalar(value)
+			if err != nil {
+				return Config{}, parseError(lineNo, fmt.Sprintf("extension %q setting %q must be a boolean, integer, or quoted string", extensionID, key), err)
+			}
+			cfg.Extensions[extensionID][key] = parsed
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -199,7 +220,6 @@ func Validate(cfg Config, compiled CapabilityRegistry) error {
 			return &Error{Message: fmt.Sprintf("unknown limit %q", id)}
 		}
 	}
-
 	return nil
 }
 
@@ -241,6 +261,7 @@ max_output_bytes = 1048576
 max_file_read_bytes = 1048576
 max_file_write_bytes = 1048576
 command_timeout_seconds = 30
+
 `
 }
 
@@ -321,4 +342,18 @@ func knownLimit(id string) bool {
 	default:
 		return false
 	}
+}
+
+func parseExtensionScalar(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		return strconv.Unquote(value)
+	}
+	if _, err := parseBool(value); err == nil {
+		return value, nil
+	}
+	if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return strconv.FormatInt(parsed, 10), nil
+	}
+	return "", fmt.Errorf("expected true, false, an integer, or a quoted string")
 }
