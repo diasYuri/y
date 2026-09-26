@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -37,17 +38,21 @@ func (m *Manager) Register(registry *tools.Registry) error {
 	if registry == nil {
 		return fmt.Errorf("subagent tool registry is nil")
 	}
-	for _, spec := range []struct {
-		descriptor tools.ToolDescriptor
-		handler    tools.ToolHandler
+	for _, build := range []struct {
+		describe func() (tools.ToolDescriptor, error)
+		handler  tools.ToolHandler
 	}{
-		{spawnDescriptor(), tools.ToolHandlerFunc(m.handleSpawn)},
-		{listDescriptor(), tools.ToolHandlerFunc(m.handleList)},
-		{statusDescriptor(), tools.ToolHandlerFunc(m.handleStatus)},
-		{waitDescriptor(), tools.ToolHandlerFunc(m.handleWait)},
-		{cancelDescriptor(), tools.ToolHandlerFunc(m.handleCancel)},
+		{spawnDescriptor, tools.ToolHandlerFunc(m.handleSpawn)},
+		{listDescriptor, tools.ToolHandlerFunc(m.handleList)},
+		{statusDescriptor, tools.ToolHandlerFunc(m.handleStatus)},
+		{waitDescriptor, tools.ToolHandlerFunc(m.handleWait)},
+		{cancelDescriptor, tools.ToolHandlerFunc(m.handleCancel)},
 	} {
-		if err := registry.Add(spec.descriptor, spec.handler); err != nil {
+		descriptor, err := build.describe()
+		if err != nil {
+			return err
+		}
+		if err := registry.Add(descriptor, build.handler); err != nil {
 			return err
 		}
 	}
@@ -98,8 +103,8 @@ func (m *Manager) AgentOption() agent.Option {
 
 type spawnInput struct {
 	Name         string `json:"name,omitempty"`
-	Prompt       string `json:"prompt"`
-	Mode         Mode   `json:"mode,omitempty"`
+	Prompt       string `json:"prompt" desc:"Task for the child subagent"`
+	Mode         Mode   `json:"mode,omitempty" enum:"ephemeral,durable"`
 	TimeoutMS    int64  `json:"timeout_ms,omitempty"`
 	ModelID      string `json:"model_id,omitempty"`
 	ProviderID   string `json:"provider_id,omitempty"`
@@ -111,7 +116,7 @@ type idInput struct {
 }
 
 type listInput struct {
-	Status Status `json:"status,omitempty"`
+	Status Status `json:"status,omitempty" enum:"queued,running,completed,failed,canceled,waiting_approval"`
 }
 
 type waitInput struct {
@@ -290,22 +295,32 @@ func sequentialDescriptor(name, description string, schema json.RawMessage) tool
 	}
 }
 
-func spawnDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolSpawn, "Start an isolated subagent for a focused task. The parent must collect its result before finishing.", json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"mode":{"type":"string","enum":["ephemeral","durable"]},"timeout_ms":{"type":"integer","minimum":1},"model_id":{"type":"string"},"provider_id":{"type":"string"},"system_prompt":{"type":"string"}},"required":["prompt"],"additionalProperties":false}`))
+func spawnDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolSpawn, "Start an isolated subagent for a focused task. The parent must collect its result before finishing.", spawnInput{})
 }
 
-func listDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolList, "List subagents created by the current parent session.", json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["queued","running","completed","failed","canceled","waiting_approval"]}},"additionalProperties":false}`))
+func listDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolList, "List subagents created by the current parent session.", listInput{})
 }
 
-func statusDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolStatus, "Read the status and bounded result of one child subagent.", json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}`))
+func statusDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolStatus, "Read the status and bounded result of one child subagent.", idInput{})
 }
 
-func waitDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolWait, "Wait for one child subagent to finish and return its bounded result.", json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},"timeout_ms":{"type":"integer","minimum":1}},"required":["id"],"additionalProperties":false}`))
+func waitDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolWait, "Wait for one child subagent to finish and return its bounded result.", waitInput{})
 }
 
-func cancelDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolCancel, "Cancel one child subagent owned by the current parent session.", json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}`))
+func cancelDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolCancel, "Cancel one child subagent owned by the current parent session.", idInput{})
+}
+
+// typedSequentialDescriptor builds a descriptor whose JSON Schema is
+// generated from the argument struct via tools.SchemaFor.
+func typedSequentialDescriptor(name, description string, args any) (tools.ToolDescriptor, error) {
+	schema, err := tools.SchemaFor(reflect.TypeOf(args))
+	if err != nil {
+		return tools.ToolDescriptor{}, fmt.Errorf("subagents: generate schema for %s: %w", name, err)
+	}
+	return sequentialDescriptor(name, description, schema), nil
 }

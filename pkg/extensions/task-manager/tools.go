@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/diasYuri/y/pkg/agent"
@@ -36,17 +37,21 @@ func (m *Manager) Register(registry *tools.Registry) error {
 	if registry == nil {
 		return fmt.Errorf("task: tool registry is nil")
 	}
-	for _, spec := range []struct {
-		descriptor tools.ToolDescriptor
-		handler    tools.ToolHandler
+	for _, build := range []struct {
+		describe func() (tools.ToolDescriptor, error)
+		handler  tools.ToolHandler
 	}{
-		{createDescriptor(), tools.ToolHandlerFunc(m.handleCreate)},
-		{listDescriptor(), tools.ToolHandlerFunc(m.handleList)},
-		{startDescriptor(), tools.ToolHandlerFunc(m.handleStart)},
-		{completeDescriptor(), tools.ToolHandlerFunc(m.handleComplete)},
-		{refineDescriptor(), tools.ToolHandlerFunc(m.handleRefine)},
+		{createDescriptor, tools.ToolHandlerFunc(m.handleCreate)},
+		{listDescriptor, tools.ToolHandlerFunc(m.handleList)},
+		{startDescriptor, tools.ToolHandlerFunc(m.handleStart)},
+		{completeDescriptor, tools.ToolHandlerFunc(m.handleComplete)},
+		{refineDescriptor, tools.ToolHandlerFunc(m.handleRefine)},
 	} {
-		if err := registry.Add(spec.descriptor, spec.handler); err != nil {
+		descriptor, err := build.describe()
+		if err != nil {
+			return err
+		}
+		if err := registry.Add(descriptor, build.handler); err != nil {
 			return err
 		}
 	}
@@ -174,7 +179,7 @@ type taskIDInput struct {
 }
 
 type refineInput struct {
-	ParentID    string      `json:"parentId"`
+	ParentID    string      `json:"parentId,omitempty"`
 	ParentIDAlt string      `json:"parent_id,omitempty"`
 	Tasks       []taskInput `json:"tasks"`
 }
@@ -298,22 +303,34 @@ func sequentialDescriptor(name, description string, schema json.RawMessage) tool
 	}
 }
 
-func createDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolCreate, "Create one or more tasks for the current activity before implementation.", json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object"}}},"required":["tasks"],"additionalProperties":false}`))
+type emptyInput struct{}
+
+func createDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolCreate, "Create one or more tasks for the current activity before implementation.", createInput{})
 }
 
-func listDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolList, "List the current task plan and progress.", json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`))
+func listDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolList, "List the current task plan and progress.", emptyInput{})
 }
 
-func startDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolStart, "Mark a task as in progress.", json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}`))
+func startDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolStart, "Mark a task as in progress.", taskIDInput{})
 }
 
-func completeDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolComplete, "Mark a task complete after its work is finished.", json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}`))
+func completeDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolComplete, "Mark a task complete after its work is finished.", taskIDInput{})
 }
 
-func refineDescriptor() tools.ToolDescriptor {
-	return sequentialDescriptor(toolRefine, "Split one task into an ordered sequence of child tasks.", json.RawMessage(`{"type":"object","properties":{"parentId":{"type":"string"},"parent_id":{"type":"string"},"tasks":{"type":"array","items":{"type":"object"}}},"required":["tasks"],"additionalProperties":false}`))
+func refineDescriptor() (tools.ToolDescriptor, error) {
+	return typedSequentialDescriptor(toolRefine, "Split one task into an ordered sequence of child tasks.", refineInput{})
+}
+
+// typedSequentialDescriptor builds a descriptor whose JSON Schema is
+// generated from the argument struct via tools.SchemaFor.
+func typedSequentialDescriptor(name, description string, args any) (tools.ToolDescriptor, error) {
+	schema, err := tools.SchemaFor(reflect.TypeOf(args))
+	if err != nil {
+		return tools.ToolDescriptor{}, fmt.Errorf("task: generate schema for %s: %w", name, err)
+	}
+	return sequentialDescriptor(name, description, schema), nil
 }

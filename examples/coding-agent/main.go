@@ -19,12 +19,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/diasYuri/y/pkg/agent"
 	"github.com/diasYuri/y/pkg/ai"
-	"github.com/diasYuri/y/pkg/providers/openai"
+	"github.com/diasYuri/y/pkg/coding"
 	"github.com/diasYuri/y/pkg/tools"
 )
 
@@ -39,63 +40,37 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// ── Provider Setup ───────────────────────────────────────────────
-	// Create an OPENAI provider. Supports OPENAI API or compatible
-	// endpoints (e.g. Kimi Code via OPENAI_BASE_URL).
-	//
-	// Auth priority:
-	// 1. WithAPIKey option (below)
-	// 2. OPENAI_OAUTH_TOKEN env var (Bearer token)
-	// 3. OPENAI_API_KEY env var
+	// ── Quickstart Setup ─────────────────────────────────────────────
+	// coding.NewAgent wires the provider, model catalog, built-in tools
+	// (filesystem, shell, git) and the agent loop from a declarative
+	// config. Auth priority:
+	// 1. AgentConfig.APIKey (below)
+	// 2. OPENAI_API_KEY / OPENAI_OAUTH_TOKEN env vars
 	//
 	// Base URL priority:
-	// 1. WithBaseURL option (below)
+	// 1. AgentConfig.BaseURL (below)
 	// 2. OPENAI_BASE_URL env var
-	openaiOpts := []openai.Option{
-		openai.WithAPIKey(os.Getenv("OPENROUTER_API_KEY")),
-		openai.WithBaseURL(os.Getenv("OPENROUTER_BASE_URL")),
-	}
-	provider := openai.New(openaiOpts...)
-
-	// ── Model Selection ──────────────────────────────────────────────
-	// Use Claude Sonnet for OPENAI API or kimi-compatible model for
-	// Kimi Code endpoint. You can also let the agent auto-select the
-	// first available model from the provider.
-	modelID := "google/gemini-3.7-flash"
-	modelName := "google/gemini-3.7-flash"
-	model := ai.Model{
-		ID:        modelID,
-		Name:      modelName,
-		Provider:  "openai_compatible",
-		Reasoning: true,
-		Input:     []ai.InputKind{ai.InputText},
-	}
-
-	// ── Tool Registry ────────────────────────────────────────────────
-	// Create a registry and register built-in y SDK tools: filesystem,
-	// shell, and git. A permissive policy allows sensitive tools like
-	// write_file and edit to run without interactive approval.
-	workspaceRoot := mustGetwd() + "/examples/coding-agent/workspace"
-	registry := tools.NewRegistry(
-		tools.WithPolicy(tools.PolicyFunc(func(ctx context.Context, req tools.PolicyRequest) (tools.PolicyDecision, error) {
+	workspaceRoot := filepath.Join(mustGetwd(), "workspace")
+	a, err := coding.NewAgent(ctx, coding.AgentConfig{
+		ProviderID:    "openai",
+		APIKey:        os.Getenv("OPENROUTER_API_KEY"),
+		BaseURL:       os.Getenv("OPENROUTER_BASE_URL"),
+		ModelID:       "nex-agi/nex-n2.5-mini:free",
+		WorkspaceRoot: workspaceRoot,
+		MaxTurns:      16,
+		// A permissive policy allows sensitive tools like write_file and
+		// edit to run without interactive approval. Suitable for local
+		// development; the default tools.WorkspacePolicy() is stricter.
+		Policy: tools.PolicyFunc(func(ctx context.Context, req tools.PolicyRequest) (tools.PolicyDecision, error) {
 			return tools.PolicyDecision{Kind: tools.DecisionAllow}, nil
-		})),
-	)
-	if err := registerCodingTools(registry, workspaceRoot); err != nil {
-		return fmt.Errorf("register tools: %w", err)
-	}
-
-	// ── Agent Configuration ──────────────────────────────────────────
-	// Create the agent with provider, model, tools, and event handling.
-	// The agent manages the transcript and runs the provider/tool loop.
-	a := agent.New(provider, registry,
-		agent.WithModel(model),
-		agent.WithSystemPrompt(codingSystemPrompt()),
-		agent.WithWorkspaceRoot(workspaceRoot),
-		agent.WithMaxTurns(16),
+		}),
+	},
 		agent.WithToolExecutionMode(agent.ToolExecutionParallel),
 		agent.WithEventSink(eventHandler()),
 	)
+	if err != nil {
+		return fmt.Errorf("create agent: %w", err)
+	}
 
 	// ── Interactive or Single-Prompt Mode ────────────────────────────
 	args := os.Args[1:]
@@ -113,7 +88,6 @@ func run() error {
 
 	// Interactive REPL mode.
 	fmt.Println("\n\x1b[1;32mCoding Agent\x1b[0m — type a prompt or 'quit' to exit")
-	fmt.Println("Model:", model.Name, "("+model.ID+")")
 	if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
 		fmt.Println("Base URL:", baseURL)
 	}
@@ -219,67 +193,10 @@ func printTranscript(messages []ai.Message) {
 	fmt.Println("\n\x1b[1;33m==================\x1b[0m")
 }
 
-// codingSystemPrompt returns the system prompt optimized for coding tasks.
-func codingSystemPrompt() string {
-	return `You are a senior software engineer AI assistant. You help with code analysis, refactoring, testing, and implementation.
-
-Available tools:
-- read_file: Read a file's contents
-- write_file: Write or overwrite a file
-- list_files: List files in a directory
-- search: Search for text patterns in files
-- edit: Edit a file with old/new text replacement
-- patch: Apply a unified diff patch
-- run_command: Execute a shell command (tests, builds, git, etc.)
-- git_status: Check git status
-- git_diff: View git diff
-- git_commit: Create a git commit
-
-When working on tasks:
-1. First understand the codebase by reading relevant files with read_file
-2. Use search to find related code
-3. Use run_command to run tests, builds, or any shell commands to verify changes
-4. Propose changes using write_file or edit
-5. Always verify your changes compile and tests pass
-
-Keep responses concise and focused. When writing code, follow existing style and conventions in the project.`
-}
-
 func mustGetwd() string {
 	wd, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
 	return wd
-}
-
-// permissivePolicy allows all tool operations without interactive approval.
-// Suitable for local development; use WorkspacePolicy() in production.
-var permissivePolicy = tools.PolicyFunc(func(ctx context.Context, req tools.PolicyRequest) (tools.PolicyDecision, error) {
-	return tools.PolicyDecision{Kind: tools.DecisionAllow}, nil
-})
-
-// registerCodingTools registers the y SDK built-in tools.
-//
-// The SDK provides pre-built tool families:
-//   - RegisterFilesystem: read_file, write_file, list_files, search, edit, patch
-//   - RegisterShell:      run_command (subprocess execution)
-//   - RegisterGit:        git_status, git_diff, git_commit
-func registerCodingTools(registry *tools.Registry, workspaceRoot string) error {
-	if err := tools.RegisterFilesystem(registry, tools.FilesystemOptions{
-		WorkspaceRoot: workspaceRoot,
-		Policy:        permissivePolicy,
-	}); err != nil {
-		return err
-	}
-	if err := tools.RegisterShell(registry, tools.ShellOptions{
-		WorkspaceRoot: workspaceRoot,
-		Policy:        permissivePolicy,
-	}); err != nil {
-		return err
-	}
-	return tools.RegisterGit(registry, tools.GitOptions{
-		WorkspaceRoot: workspaceRoot,
-		Policy:        permissivePolicy,
-	})
 }

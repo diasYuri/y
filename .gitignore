@@ -33,3 +33,5 @@
 .y/
 examples/coding-agent/workspace/*
 .private
+.codegraph/
+*.gob
