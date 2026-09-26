@@ -8,6 +8,7 @@
 //   - task-manager: native task planning and completion enforcement for Agent runs.
 //   - subagents: native isolated child-agent orchestration with bounded execution.
 //   - memory: native historical-memory extension built on the public memory SDK.
+//   - mcp: native MCP client extension for remote tools, resources, and prompts.
 //   - wasm: WASM extension host built on top of wazero. Gated by the
 //     feature_wasm_ext build tag; builds without the tag still link a stub
 //     Manager so callers can render extension listings.
