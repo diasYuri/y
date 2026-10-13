@@ -3,6 +3,7 @@
 package lsp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -144,12 +145,20 @@ func TestReadLoopHandlesMultipleResponses(t *testing.T) {
 	// Server waits for a signal before sending each response.
 	trigger := make(chan int, 3)
 	go func() {
-		go io.Copy(io.Discard, serverReads)
+		reader := bufio.NewReader(serverReads)
 		for i := 1; i <= 3; i++ {
 			<-trigger
+			var request Message
+			for request.ID == nil {
+				var err error
+				request, err = readHelperMessage(reader)
+				if err != nil {
+					return
+				}
+			}
 			resp := Message{
 				JSONRPC: "2.0",
-				ID:      intPtr(i),
+				ID:      request.ID,
 				Result:  json.RawMessage(fmt.Sprintf(`{"id":%d}`, i)),
 			}
 			_ = writeLSPMessage(serverWrites, resp)
@@ -161,7 +170,7 @@ func TestReadLoopHandlesMultipleResponses(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		trigger <- i
-		result, err := client.Initialize(ctx, fmt.Sprintf("file:///test%d", i))
+		result, err := client.Request(ctx, "test/request", json.RawMessage(`{}`))
 		if err != nil {
 			t.Fatalf("request %d: %v", i, err)
 		}
@@ -244,6 +253,10 @@ func TestRequestContextCancel(t *testing.T) {
 	go io.Copy(io.Discard, serverReads)
 
 	client := NewClient(clientWrites, clientReads)
+	defer func() {
+		_ = serverWrites.Close()
+		<-client.done
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

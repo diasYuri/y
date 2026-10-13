@@ -7,8 +7,10 @@ import (
 	"github.com/diasYuri/y/pkg/policy"
 	"github.com/diasYuri/y/pkg/telemetry"
 	"github.com/diasYuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/tools/code_search"
 	"github.com/diasYuri/y/pkg/tools/filesystem"
 	"github.com/diasYuri/y/pkg/tools/git"
+	"github.com/diasYuri/y/pkg/tools/lsp"
 	"github.com/diasYuri/y/pkg/tools/shell"
 )
 
@@ -48,6 +50,18 @@ func BuildToolRegistry(
 			Policy:        policyEngine,
 			Limits:        tools.ToolLimits{},
 		}); err != nil {
+			return nil, err
+		}
+		if err := codesearch.Register(registry, codesearch.Options{
+			WorkspaceRoot: cwd,
+			Policy:        policyEngine,
+			Limits:        tools.ToolLimits{},
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if compiled.Has(feature.KindFeature, "lsp") {
+		if err := lsp.Register(registry, lsp.Options{WorkspaceRoot: cwd, Policy: policyEngine}); err != nil {
 			return nil, err
 		}
 	}

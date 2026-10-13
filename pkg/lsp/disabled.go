@@ -49,3 +49,47 @@ func (*Client) Definition(context.Context, string, int, int) (json.RawMessage, e
 }
 
 func (*Client) Shutdown(context.Context) error { return ErrUnavailable }
+
+func (*Client) Request(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) Notify(string, json.RawMessage) error { return ErrUnavailable }
+
+func (*Client) References(context.Context, string, int, int, bool) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) Implementations(context.Context, string, int, int) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) TypeDefinition(context.Context, string, int, int) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) DocumentSymbols(context.Context, string) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) WorkspaceSymbols(context.Context, string) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) CallHierarchy(context.Context, string, int, int) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) IncomingCalls(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) OutgoingCalls(context.Context, json.RawMessage) (json.RawMessage, error) {
+	return nil, ErrUnavailable
+}
+
+func (*Client) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}

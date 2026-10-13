@@ -130,7 +130,7 @@ func TestSystemPromptForToolFamilies(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"read_file", "write_file", "list_files", "search", "edit", "patch", "run_command"} {
-		if strings.Contains(prompt, name) {
+		if strings.Contains(prompt, "- "+name+":") {
 			t.Errorf("git-only prompt advertises unregistered tool %q", name)
 		}
 	}

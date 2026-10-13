@@ -64,6 +64,11 @@ type Registry struct {
 	cacheMaxSize    int
 	operations      map[string]ToolResponse
 	inflight        map[string]*inflightOperation
+	closers         []func(context.Context) error
+	closeOnce       sync.Once
+	closeDone       chan struct{}
+	closeErr        error
+	closed          bool
 }
 
 func capabilityNames(capabilities []Capability) []string {
@@ -79,13 +84,59 @@ func capabilityNames(capabilities []Capability) []string {
 
 // NewRegistry creates an empty tool registry.
 func NewRegistry(opts ...RegistryOption) *Registry {
-	r := &Registry{entries: make(map[string]registryEntry), operations: make(map[string]ToolResponse), inflight: make(map[string]*inflightOperation)}
+	r := &Registry{entries: make(map[string]registryEntry), operations: make(map[string]ToolResponse), inflight: make(map[string]*inflightOperation), closeDone: make(chan struct{})}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(r)
 		}
 	}
 	return r
+}
+
+// AddCloser registers a resource owned by this registry. Closers run once,
+// in reverse registration order, when Close is called.
+func (r *Registry) AddCloser(closer func(context.Context) error) error {
+	if r == nil || closer == nil {
+		return toolError("invalid_tool", "registry closer is nil", ErrInvalidTool)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return toolError("registry_closed", "tool registry is closed", ErrInvalidTool)
+	}
+	r.closers = append(r.closers, closer)
+	return nil
+}
+
+// Close shuts down registry-owned resources. A timed-out caller may call
+// Close again to wait for the shutdown to finish.
+func (r *Registry) Close(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.closeOnce.Do(func() {
+		r.mu.Lock()
+		r.closed = true
+		closers := append([]func(context.Context) error(nil), r.closers...)
+		r.mu.Unlock()
+		go func() {
+			defer close(r.closeDone)
+			for i := len(closers) - 1; i >= 0; i-- {
+				if err := closers[i](context.Background()); err != nil && r.closeErr == nil {
+					r.closeErr = err
+				}
+			}
+		}()
+	})
+	select {
+	case <-r.closeDone:
+		return r.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // WithPolicy configures the registry to apply policy checks before sensitive tools run.
@@ -130,6 +181,9 @@ func (r *Registry) Add(desc ToolDescriptor, handler ToolHandler) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return toolError("registry_closed", "tool registry is closed", ErrInvalidTool)
+	}
 	if r.entries == nil {
 		r.entries = make(map[string]registryEntry)
 	}
@@ -191,6 +245,12 @@ func (r *Registry) Handle(ctx context.Context, req ToolRequest) (ToolResponse, e
 	desc, handler, ok := r.Get(req.Name)
 	if !ok {
 		return ToolResponse{}, toolError("tool_not_found", fmt.Sprintf("tool %q not found", req.Name), ErrToolNotFound)
+	}
+	r.mu.RLock()
+	closed := r.closed
+	r.mu.RUnlock()
+	if closed {
+		return ToolResponse{}, toolError("registry_closed", "tool registry is closed", ErrInvalidTool)
 	}
 	policyEngine := r.policy
 	if policyEngine == nil {
@@ -346,6 +406,51 @@ func (r *Registry) Handle(ctx context.Context, req ToolRequest) (ToolResponse, e
 		r.mu.Unlock()
 	}
 	return resp, err
+}
+
+// authorizeOperation applies the registry's policy and approval handler to a
+// nested operation such as starting a persistent language-server process.
+func (r *Registry) authorizeOperation(ctx context.Context, req PolicyRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req = policyRequestWithToolContext(ctx, req)
+	r.mu.RLock()
+	engine := r.policy
+	approvalHandler := r.approvalHandler
+	r.mu.RUnlock()
+	decision, err := decide(ctx, engine, req)
+	if err != nil {
+		return err
+	}
+	if decision.Kind == DecisionAllow {
+		return nil
+	}
+	if decision.Kind == DecisionRequireApproval {
+		if decision.Approval == nil {
+			return toolError("approval_required", "process execution requires approval", ErrApprovalRequired)
+		}
+		if approvalHandler == nil {
+			return &ApprovalError{Request: *decision.Approval, Cause: ErrApprovalRequired}
+		}
+		approval, err := approvalHandler.RequestApproval(ctx, *decision.Approval)
+		if err != nil {
+			return err
+		}
+		req.Approval = approval
+		decision, err = decide(ctx, engine, req)
+		if err != nil {
+			return err
+		}
+	}
+	if decision.Kind != DecisionAllow {
+		reason := decision.Reason
+		if reason == "" {
+			reason = "process execution denied by policy"
+		}
+		return toolError("policy_denied", reason, ErrPolicyDenied)
+	}
+	return nil
 }
 
 func (r *Registry) executeHandler(ctx context.Context, handler ToolHandler, req ToolRequest, desc ToolDescriptor) (ToolResponse, error) {

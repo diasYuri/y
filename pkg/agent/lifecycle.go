@@ -11,6 +11,34 @@ import (
 	"github.com/diasYuri/y/pkg/telemetry"
 )
 
+// Close aborts any active run and closes resources owned by the agent's tool
+// registry, including persistent language-server processes.
+func (a *Agent) Close(ctx context.Context) error {
+	if a == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	a.Abort()
+	done := make(chan error, 1)
+	go func() {
+		a.runMu.Lock()
+		defer a.runMu.Unlock()
+		if closer, ok := a.registry.(interface{ Close(context.Context) error }); ok {
+			done <- closer.Close(ctx)
+			return
+		}
+		done <- nil
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // invokeOnError calls the OnError hook (if any). When the hook returns nil,
 // the loop is asked to swallow the error; the caller should treat the step as
 // recoverable. When the hook returns [ErrRetry], the caller should retry the

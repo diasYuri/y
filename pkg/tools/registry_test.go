@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,62 @@ func TestRegistryAddListAndHandle(t *testing.T) {
 	}
 	if _, err := reg.Handle(context.Background(), ToolRequest{Name: "missing"}); !errors.Is(err, ErrToolNotFound) {
 		t.Fatalf("missing Handle error = %v, want ErrToolNotFound", err)
+	}
+}
+
+func TestRegistryClosesOwnedResourcesInReverseOrder(t *testing.T) {
+	reg := NewRegistry()
+	var order []string
+	for _, name := range []string{"first", "second", "third"} {
+		name := name
+		if err := reg.AddCloser(func(context.Context) error {
+			order = append(order, name)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reg.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := reg.Close(context.Background()); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if got := strings.Join(order, ","); got != "third,second,first" {
+		t.Fatalf("closer order = %q", got)
+	}
+	if err := reg.AddCloser(func(context.Context) error { return nil }); err == nil {
+		t.Fatal("AddCloser after Close should fail")
+	}
+}
+
+func TestRegistryCloseContinuesAfterCallerCancellation(t *testing.T) {
+	reg := NewRegistry()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	if err := reg.AddCloser(func(context.Context) error {
+		close(started)
+		<-release
+		close(finished)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := reg.Close(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Close error = %v, want cancellation", err)
+	}
+	<-started
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("registry closer did not finish after caller cancellation")
+	}
+	if err := reg.Close(context.Background()); err != nil {
+		t.Fatalf("Close after cleanup: %v", err)
 	}
 }
 

@@ -15,7 +15,7 @@ type GitOptions struct {
 	Limits        ToolLimits
 }
 
-// RegisterGit registers git_status, git_diff, and git_commit.
+// RegisterGit registers repository inspection and git history tools.
 func RegisterGit(r *Registry, opts GitOptions) error {
 	if r == nil {
 		return fmt.Errorf("tool registry is nil")
@@ -28,6 +28,10 @@ func RegisterGit(r *Registry, opts GitOptions) error {
 		{git.statusDescriptor(), ToolHandlerFunc(git.status)},
 		{git.diffDescriptor(), ToolHandlerFunc(git.diff)},
 		{git.logDescriptor(), ToolHandlerFunc(git.log)},
+		{git.showDescriptor(), ToolHandlerFunc(git.show)},
+		{git.historyDescriptor(), ToolHandlerFunc(git.history)},
+		{git.blameDescriptor(), ToolHandlerFunc(git.blame)},
+		{git.searchHistoryDescriptor(), ToolHandlerFunc(git.searchHistory)},
 		{git.branchDescriptor(), ToolHandlerFunc(git.branch)},
 		{git.checkoutDescriptor(), ToolHandlerFunc(git.checkout)},
 		{git.commitDescriptor(), ToolHandlerFunc(git.commit)},
@@ -49,7 +53,7 @@ func newGitTool(opts GitOptions) *gitTool {
 	return &gitTool{
 		workspaceRoot: opts.WorkspaceRoot,
 		policy:        opts.Policy,
-		limits:        commandLimits(opts.Limits),
+		limits:        filesystemLimits(commandLimits(opts.Limits)),
 	}
 }
 
@@ -214,6 +218,10 @@ func (t *gitTool) diff(ctx context.Context, req ToolRequest) (ToolResponse, erro
 	if err != nil {
 		return ToolResponse{}, err
 	}
+	input.Paths, err = validateGitPaths(cwd, input.Paths)
+	if err != nil {
+		return ToolResponse{}, err
+	}
 	args := []string{"diff", "--no-ext-diff"}
 	if input.Cached {
 		args = append(args, "--cached")
@@ -253,6 +261,10 @@ func (t *gitTool) commit(ctx context.Context, req ToolRequest) (ToolResponse, er
 		return ToolResponse{}, toolError("invalid_arguments", "git_commit requires explicit paths; broad staging (git add -A) is not allowed", ErrInvalidTool)
 	}
 	cwd, err := resolveCommandDir(t.workspaceRoot, req.WorkspaceRoot, input.CWD)
+	if err != nil {
+		return ToolResponse{}, err
+	}
+	input.Paths, err = validateGitPaths(cwd, input.Paths)
 	if err != nil {
 		return ToolResponse{}, err
 	}
@@ -313,6 +325,10 @@ func (t *gitTool) log(ctx context.Context, req ToolRequest) (ToolResponse, error
 	if err != nil {
 		return ToolResponse{}, err
 	}
+	input.Paths, err = validateGitPaths(cwd, input.Paths)
+	if err != nil {
+		return ToolResponse{}, err
+	}
 	args := []string{"log", "--oneline", "--decorate", "--graph", "--no-color"}
 	if input.MaxCount > 0 {
 		args = append(args, fmt.Sprintf("-%d", input.MaxCount))
@@ -356,9 +372,15 @@ func (t *gitTool) branch(ctx context.Context, req ToolRequest) (ToolResponse, er
 	if input.List {
 		args = append(args, "-a", "-vv")
 	} else if input.Create != "" {
+		if strings.HasPrefix(input.Create, "-") {
+			return ToolResponse{}, toolError("invalid_arguments", "branch name cannot start with a dash", ErrInvalidTool)
+		}
 		args = append(args, input.Create)
 		cap = CapabilityGitWrite
 	} else if input.Delete != "" {
+		if strings.HasPrefix(input.Delete, "-") {
+			return ToolResponse{}, toolError("invalid_arguments", "branch name cannot start with a dash", ErrInvalidTool)
+		}
 		args = append(args, "-D", input.Delete)
 		cap = CapabilityGitWrite
 	} else {
@@ -391,7 +413,14 @@ func (t *gitTool) checkout(ctx context.Context, req ToolRequest) (ToolResponse, 
 	if strings.TrimSpace(input.Ref) == "" {
 		return ToolResponse{}, toolError("invalid_arguments", "git_checkout ref is required", ErrInvalidTool)
 	}
+	if strings.HasPrefix(input.Ref, "-") {
+		return ToolResponse{}, toolError("invalid_arguments", "git ref cannot start with a dash", ErrInvalidTool)
+	}
 	cwd, err := resolveCommandDir(t.workspaceRoot, req.WorkspaceRoot, input.CWD)
+	if err != nil {
+		return ToolResponse{}, err
+	}
+	input.Paths, err = validateGitPaths(cwd, input.Paths)
 	if err != nil {
 		return ToolResponse{}, err
 	}

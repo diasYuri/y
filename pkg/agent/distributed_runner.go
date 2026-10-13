@@ -62,6 +62,17 @@ func (r *eventBackedToolRegistry) GetExecutionMode(name string) tools.ExecutionM
 	return r.base.GetExecutionMode(name)
 }
 
+// Close delegates lifecycle cleanup to registries that own local resources.
+func (r *eventBackedToolRegistry) Close(ctx context.Context) error {
+	if r == nil || r.base == nil {
+		return nil
+	}
+	if closer, ok := r.base.(interface{ Close(context.Context) error }); ok {
+		return closer.Close(ctx)
+	}
+	return nil
+}
+
 func (r *eventBackedToolRegistry) Handle(ctx context.Context, request tools.ToolRequest) (tools.ToolResponse, error) {
 	if request.IdempotencyKey != "" && request.RunID != "" && r.events != nil {
 		events, err := r.events.Read(ctx, request.RunID, 0)

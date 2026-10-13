@@ -60,6 +60,26 @@ func TestReadFileRespectsByteLimit(t *testing.T) {
 	}
 }
 
+func TestReadFileReturnsOnlyRequestedLineRange(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "long.txt"), "one\ntwo\nthree\nfour\n")
+	reg := registerTestFS(t, root, ToolLimits{})
+	resp, err := reg.Handle(context.Background(), ToolRequest{Name: "read_file", WorkspaceRoot: root, Arguments: mustJSON(t, readFileInput{Path: "long.txt", StartLine: 2, EndLine: 3})})
+	if err != nil {
+		t.Fatalf("read_file range: %v", err)
+	}
+	if got := resp.Content[0].Text; got != "two\nthree" {
+		t.Fatalf("range content = %q, want only lines 2-3", got)
+	}
+	var details readFileDetails
+	if err := json.Unmarshal(resp.Details, &details); err != nil {
+		t.Fatal(err)
+	}
+	if details.StartLine != 2 || details.EndLine != 3 || details.LinesRead != 2 || !details.Truncated {
+		t.Fatalf("range details = %#v", details)
+	}
+}
+
 func TestWriteFileCreatesParentsAndChecksLimit(t *testing.T) {
 	root := t.TempDir()
 	reg := registerTestFS(t, root, ToolLimits{MaxFileWriteBytes: 5})
@@ -142,6 +162,32 @@ func TestSearchFindsLiteralMatchesWithLimits(t *testing.T) {
 	}
 	if !strings.Contains(text, "matches limit reached") {
 		t.Fatalf("search text = %q, want match limit notice", text)
+	}
+}
+
+func TestSearchStructuredUnicodeColumnAndContext(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "sample.txt"), "before\n😀Target found\nafter\n")
+	reg := registerTestFS(t, root, ToolLimits{})
+	resp, err := reg.Handle(context.Background(), ToolRequest{Name: "search", WorkspaceRoot: root, Arguments: mustJSON(t, searchInput{
+		Pattern: "target", Path: "sample.txt", IgnoreCase: true, Literal: true, ContextLines: 1,
+	})})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	var details searchDetails
+	if err := json.Unmarshal(resp.Details, &details); err != nil {
+		t.Fatalf("search details: %v", err)
+	}
+	if len(details.Matches) != 1 {
+		t.Fatalf("structured matches = %#v", details.Matches)
+	}
+	match := details.Matches[0]
+	if match.Path != "sample.txt" || match.Line != 2 || match.Column != 2 || match.Text != "😀Target found" {
+		t.Fatalf("structured match = %#v", match)
+	}
+	if len(match.Before) != 1 || match.Before[0] != "before" || len(match.After) != 1 || match.After[0] != "after" {
+		t.Fatalf("structured context = %#v", match)
 	}
 }
 

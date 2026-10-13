@@ -19,6 +19,24 @@ func TestEngineRequiresApprovalForSensitiveRequests(t *testing.T) {
 	}
 }
 
+func TestEngineCanDisableSensitiveApprovalExplicitly(t *testing.T) {
+	request := Request{ToolName: "lsp_server_start", Sensitive: true}
+	decision, err := NewEngine(Config{DisableSensitiveApproval: true}).Decide(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != DecisionAllow {
+		t.Fatalf("disabled approval decision = %#v, want allow", decision)
+	}
+	decision, err = NewEngine(Config{DisableSensitiveApproval: true, RequireApprovalForSensitive: true}).Decide(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != DecisionRequireApproval {
+		t.Fatalf("explicit approval decision = %#v, want approval", decision)
+	}
+}
+
 func TestDistributedQuotaStoreIsIdempotentAcrossEngineInstances(t *testing.T) {
 	quota := NewInMemoryQuotaStore()
 	config := DistributedConfig{Config: Config{}, TenantLimits: map[string]int{"tenant-1": 1}, Quota: quota}

@@ -111,6 +111,7 @@ type Config struct {
 	ApprovalMode                ApprovalMode `json:"approval_mode,omitempty"`
 	DenyEscapesWorkspace        bool         `json:"deny_escaped_workspace,omitempty"`
 	RequireApprovalForSensitive bool         `json:"require_approval_for_sensitive,omitempty"`
+	DisableSensitiveApproval    bool         `json:"disable_sensitive_approval,omitempty"`
 	PolicyVersion               string       `json:"policy_version,omitempty"`
 	RequireTenant               bool         `json:"require_tenant,omitempty"`
 }
@@ -458,6 +459,8 @@ func NewEngine(cfg Config) Engine {
 	}
 	if cfg.RequireApprovalForSensitive {
 		base.RequireApprovalForSensitive = true
+	} else if cfg.DisableSensitiveApproval {
+		base.RequireApprovalForSensitive = false
 	}
 	return &engine{cfg: base}
 }

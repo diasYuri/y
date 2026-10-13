@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/diasYuri/y/pkg/tools/gitignore"
 )
@@ -75,7 +76,7 @@ func (fs *filesystem) readDescriptor() ToolDescriptor {
 	return ToolDescriptor{
 		Name:         "read_file",
 		Description:  "Read a UTF-8 file from the workspace with byte and line limits.",
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1},"max_bytes":{"type":"integer","minimum":1}},"required":["path"],"additionalProperties":false}`),
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1},"max_lines":{"type":"integer","minimum":1},"max_bytes":{"type":"integer","minimum":1}},"required":["path"],"additionalProperties":false}`),
 		Capabilities: []Capability{CapabilityFilesystemRead},
 		Limits:       fs.limits,
 	}
@@ -105,8 +106,8 @@ func (fs *filesystem) listDescriptor() ToolDescriptor {
 func (fs *filesystem) searchDescriptor() ToolDescriptor {
 	return ToolDescriptor{
 		Name:         "search",
-		Description:  "Search workspace files for a literal string or regular expression with output limits.",
-		InputSchema:  json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"},"glob":{"type":"string"},"ignore_case":{"type":"boolean"},"literal":{"type":"boolean"},"limit":{"type":"integer","minimum":1},"max_bytes":{"type":"integer","minimum":1}},"required":["pattern"],"additionalProperties":false}`),
+		Description:  "Compatibility search using literal or regular-expression matching. Prefer search_text (ripgrep) for normal source discovery; use this when ripgrep is unavailable or grep-compatible behavior is useful.",
+		InputSchema:  json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"},"glob":{"type":"string"},"ignore_case":{"type":"boolean"},"literal":{"type":"boolean"},"limit":{"type":"integer","minimum":1},"context_lines":{"type":"integer","minimum":0,"maximum":20},"max_bytes":{"type":"integer","minimum":1}},"required":["pattern"],"additionalProperties":false}`),
 		Capabilities: []Capability{CapabilityFilesystemSearch},
 		Limits:       fs.limits,
 	}
@@ -135,14 +136,20 @@ func (fs *filesystem) patchDescriptor() ToolDescriptor {
 }
 
 type readFileInput struct {
-	Path     string `json:"path"`
-	Offset   int    `json:"offset,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
-	MaxBytes int64  `json:"max_bytes,omitempty"`
+	Path      string `json:"path"`
+	Offset    int    `json:"offset,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	MaxLines  int    `json:"max_lines,omitempty"`
+	MaxBytes  int64  `json:"max_bytes,omitempty"`
 }
 
 type readFileDetails struct {
 	BytesRead int64 `json:"bytes_read"`
+	StartLine int   `json:"start_line,omitempty"`
+	EndLine   int   `json:"end_line,omitempty"`
+	LinesRead int   `json:"lines_read,omitempty"`
 	Truncated bool  `json:"truncated"`
 }
 
@@ -153,6 +160,15 @@ func (fs *filesystem) readFile(ctx context.Context, req ToolRequest) (ToolRespon
 	var input readFileInput
 	if err := json.Unmarshal(req.Arguments, &input); err != nil {
 		return ToolResponse{}, toolError("invalid_arguments", "read_file arguments must be valid JSON", err)
+	}
+	if input.StartLine > 0 && input.Offset > 0 && input.StartLine != input.Offset {
+		return ToolResponse{}, toolError("invalid_arguments", "start_line and legacy offset cannot specify different lines", ErrInvalidTool)
+	}
+	if input.EndLine > 0 && input.StartLine == 0 && input.Offset == 0 {
+		return ToolResponse{}, toolError("invalid_arguments", "end_line requires start_line", ErrInvalidTool)
+	}
+	if input.EndLine > 0 && input.EndLine < max(input.StartLine, input.Offset) {
+		return ToolResponse{}, toolError("invalid_arguments", "end_line must be greater than or equal to start_line", ErrInvalidTool)
 	}
 	path, err := resolveForRead(fs.workspace(req), input.Path)
 	if err != nil {
@@ -178,12 +194,25 @@ func (fs *filesystem) readFile(ctx context.Context, req ToolRequest) (ToolRespon
 		return ToolResponse{}, err
 	}
 	text := string(data)
-	text = selectLines(text, input.Offset, input.Limit)
+	startLine := input.StartLine
+	if startLine == 0 {
+		startLine = input.Offset
+	}
+	lineLimit := input.MaxLines
+	if lineLimit == 0 {
+		lineLimit = input.Limit
+	}
+	text, selectedStart, selectedEnd, lineTruncated := selectLineRange(text, startLine, input.EndLine, lineLimit)
 	if truncated {
 		text += "\n\n[File read limit reached]"
 	}
+	beforeOutputLimit := text
 	text = limitTextBytes(text, fs.limits.MaxOutputBytes, "Tool output limit reached")
-	return textResponse(text, readFileDetails{BytesRead: int64(len(data)), Truncated: truncated})
+	linesRead := 0
+	if selectedEnd >= selectedStart && selectedStart > 0 {
+		linesRead = selectedEnd - selectedStart + 1
+	}
+	return textResponse(text, readFileDetails{BytesRead: int64(len(data)), StartLine: selectedStart, EndLine: selectedEnd, LinesRead: linesRead, Truncated: truncated || lineTruncated || text != beforeOutputLimit})
 }
 
 type writeFileInput struct {
@@ -315,24 +344,32 @@ func (fs *filesystem) listFiles(ctx context.Context, req ToolRequest) (ToolRespo
 }
 
 type searchInput struct {
-	Pattern    string `json:"pattern"`
-	Path       string `json:"path,omitempty"`
-	Glob       string `json:"glob,omitempty"`
-	IgnoreCase bool   `json:"ignore_case,omitempty"`
-	Literal    bool   `json:"literal,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
-	MaxBytes   int64  `json:"max_bytes,omitempty"`
+	Pattern      string `json:"pattern"`
+	Path         string `json:"path,omitempty"`
+	Glob         string `json:"glob,omitempty"`
+	IgnoreCase   bool   `json:"ignore_case,omitempty"`
+	Literal      bool   `json:"literal,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+	ContextLines int    `json:"context_lines,omitempty"`
+	MaxBytes     int64  `json:"max_bytes,omitempty"`
 }
 
 type searchDetails struct {
-	MatchesReturned int  `json:"matches_returned"`
-	MatchLimitHit   bool `json:"match_limit_hit"`
-	OutputTruncated bool `json:"output_truncated"`
-	LinesTruncated  bool `json:"lines_truncated"`
-	FilesLimited    bool `json:"files_limited"`
+	MatchesReturned int           `json:"matches_returned"`
+	MatchLimitHit   bool          `json:"match_limit_hit"`
+	OutputTruncated bool          `json:"output_truncated"`
+	LinesTruncated  bool          `json:"lines_truncated"`
+	FilesLimited    bool          `json:"files_limited"`
+	Matches         []searchMatch `json:"matches,omitempty"`
 }
 
 func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	startedAt := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(fs.limits.CommandTimeoutSeconds)*time.Second)
+	defer cancel()
 	if err := enforceInputLimit(req.Arguments, fs.limits); err != nil {
 		return ToolResponse{}, err
 	}
@@ -342,6 +379,9 @@ func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse
 	}
 	if input.Pattern == "" {
 		return ToolResponse{}, toolError("invalid_arguments", "search pattern is required", ErrInvalidTool)
+	}
+	if input.ContextLines < 0 || input.ContextLines > 20 {
+		return ToolResponse{}, toolError("invalid_arguments", "context_lines must be between 0 and 20", ErrInvalidTool)
 	}
 	if input.Path == "" {
 		input.Path = "."
@@ -412,7 +452,7 @@ func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse
 			if !globMatches(input.Glob, rel) {
 				return nil
 			}
-			more, err := fs.searchFile(ctx, filePath, rel, matcher, limit, &lines, &details)
+			more, err := fs.searchFile(ctx, filePath, rel, matcher, limit, input.ContextLines, &lines, &details)
 			if err != nil {
 				return err
 			}
@@ -425,9 +465,12 @@ func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse
 			err = nil
 		}
 	} else {
-		rel := filepath.Base(path.Absolute)
+		rel, relErr := filepath.Rel(path.WorkspaceRoot, path.Absolute)
+		if relErr != nil {
+			rel = filepath.Base(path.Absolute)
+		}
 		if globMatches(input.Glob, rel) {
-			_, err = fs.searchFile(ctx, path.Absolute, rel, matcher, limit, &lines, &details)
+			_, err = fs.searchFile(ctx, path.Absolute, rel, matcher, limit, input.ContextLines, &lines, &details)
 		}
 	}
 	if err != nil {
@@ -442,7 +485,23 @@ func (fs *filesystem) search(ctx context.Context, req ToolRequest) (ToolResponse
 	}
 	limited := limitTextBytes(text, maxOutput, "Tool output limit reached")
 	details.OutputTruncated = limited != text
-	return textResponse(limited, details)
+	for {
+		raw, marshalErr := json.Marshal(details)
+		if marshalErr != nil {
+			return ToolResponse{}, marshalErr
+		}
+		if maxOutput <= 0 || int64(len(raw)) <= maxOutput || len(details.Matches) == 0 {
+			resp, responseErr := textResponse(limited, nil)
+			if responseErr != nil {
+				return ToolResponse{}, responseErr
+			}
+			resp.Details = raw
+			resp.Metadata, _ = json.Marshal(map[string]any{"tool": "search", "workspace": path.WorkspaceRoot, "duration_ms": time.Since(startedAt).Milliseconds(), "result_count": details.MatchesReturned, "truncated": details.OutputTruncated || details.MatchLimitHit || details.FilesLimited, "timeout": false, "cache_hit": false})
+			return resp, nil
+		}
+		details.OutputTruncated = true
+		details.Matches = details.Matches[:len(details.Matches)-1]
+	}
 }
 
 var errStopWalk = errors.New("stop walking")
@@ -463,7 +522,7 @@ var searchFormatPool = sync.Pool{
 	},
 }
 
-func (fs *filesystem) searchFile(ctx context.Context, path, displayPath string, matcher lineMatcher, limit int, output *[]string, details *searchDetails) (bool, error) {
+func (fs *filesystem) searchFile(ctx context.Context, path, displayPath string, matcher lineMatcher, limit, contextLines int, output *[]string, details *searchDetails) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return true, nil
@@ -490,6 +549,8 @@ func (fs *filesystem) searchFile(ctx context.Context, path, displayPath string, 
 	var bytesRead int64
 	lineNo := 0
 	var carry []byte
+	previous := make([]string, 0, contextLines)
+	pending := make([]int, 0, contextLines)
 	for {
 		if err := ctx.Err(); err != nil {
 			return false, err
@@ -524,24 +585,49 @@ func (fs *filesystem) searchFile(ctx context.Context, path, displayPath string, 
 				}
 				continue
 			}
+			lineStr := string(line)
+			boundedLine := limitTextBytes(lineStr, fs.limits.MaxLineBytes, "line truncated")
+			if boundedLine != lineStr {
+				details.LinesTruncated = true
+			}
+			if contextLines > 0 && len(pending) > 0 {
+				remaining := pending[:0]
+				for _, index := range pending {
+					match := &details.Matches[index]
+					if len(match.After) < contextLines {
+						match.After = append(match.After, boundedLine)
+					}
+					if len(match.After) < contextLines {
+						remaining = append(remaining, index)
+					}
+				}
+				pending = remaining
+			}
 			if matcher.MatchBytes(line) {
 				if len(*output) >= limit {
 					details.MatchLimitHit = true
 					return false, nil
-				}
-				lineStr := string(line)
-				truncatedLine := limitTextBytes(lineStr, fs.limits.MaxLineBytes, "line truncated")
-				if truncatedLine != lineStr {
-					details.LinesTruncated = true
 				}
 				formatBuf = formatBuf[:0]
 				formatBuf = append(formatBuf, displaySlash...)
 				formatBuf = append(formatBuf, ':')
 				formatBuf = strconv.AppendInt(formatBuf, int64(lineNo), 10)
 				formatBuf = append(formatBuf, ':', ' ')
-				formatBuf = append(formatBuf, truncatedLine...)
+				formatBuf = append(formatBuf, boundedLine...)
 				*output = append(*output, string(formatBuf))
 				details.MatchesReturned++
+				match := searchMatch{Path: displaySlash, Line: lineNo, Column: matcher.Column(lineStr), Text: boundedLine}
+				match.Before = append(match.Before, previous...)
+				details.Matches = append(details.Matches, match)
+				if contextLines > 0 {
+					pending = append(pending, len(details.Matches)-1)
+				}
+			}
+			if contextLines > 0 {
+				previous = append(previous, boundedLine)
+				if len(previous) > contextLines {
+					previous = previous[len(previous)-contextLines:]
+				}
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -568,6 +654,7 @@ func trimTrailingNewline(line []byte) []byte {
 type lineMatcher interface {
 	Match(line string) bool
 	MatchBytes(line []byte) bool
+	Column(line string) int
 }
 
 type literalMatcher struct {
@@ -599,6 +686,20 @@ func (m literalMatcher) MatchBytes(line []byte) bool {
 	return bytes.Contains(bytes.ToLower(line), m.loweredB)
 }
 
+func (m literalMatcher) Column(line string) int {
+	search := line
+	needle := m.pattern
+	if m.ignoreCase {
+		search = strings.ToLower(line)
+		needle = m.lowered
+	}
+	index := strings.Index(search, needle)
+	if index < 0 {
+		return 1
+	}
+	return runeColumn(search, index)
+}
+
 type regexpMatcher struct {
 	re *regexp.Regexp
 }
@@ -609,6 +710,14 @@ func (m regexpMatcher) Match(line string) bool {
 
 func (m regexpMatcher) MatchBytes(line []byte) bool {
 	return m.re.Match(line)
+}
+
+func (m regexpMatcher) Column(line string) int {
+	index := m.re.FindStringIndex(line)
+	if len(index) == 0 {
+		return 1
+	}
+	return runeColumn(line, index[0])
 }
 
 func newMatcher(pattern string, ignoreCase, literal bool) (lineMatcher, error) {
@@ -781,4 +890,36 @@ func selectLines(text string, offset, limit int) string {
 		end = start + limit
 	}
 	return strings.Join(lines[start:end], "\n")
+}
+
+func selectLineRange(text string, startLine, endLine, maxLines int) (string, int, int, bool) {
+	lines := strings.Split(text, "\n")
+	lineCount := len(lines)
+	if text == "" {
+		lineCount = 0
+	} else if strings.HasSuffix(text, "\n") {
+		lineCount-- // the final empty split item is a line terminator, not a line
+	}
+	if startLine <= 0 && endLine <= 0 && maxLines <= 0 {
+		return text, 1, lineCount, false
+	}
+	start := startLine
+	if start <= 0 {
+		start = 1
+	}
+	if start > lineCount {
+		return "", start, start - 1, true
+	}
+	end := lineCount
+	if endLine > 0 && endLine < end {
+		end = endLine
+	}
+	if maxLines > 0 && start+maxLines-1 < end {
+		end = start + maxLines - 1
+	}
+	selected := strings.Join(lines[start-1:end], "\n")
+	if end == lineCount && strings.HasSuffix(text, "\n") {
+		selected += "\n"
+	}
+	return selected, start, end, start > 1 || end < lineCount
 }

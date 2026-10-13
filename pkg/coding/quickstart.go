@@ -17,8 +17,10 @@ import (
 	"github.com/diasYuri/y/pkg/providers/openai"
 	"github.com/diasYuri/y/pkg/providers/openai_compatible"
 	"github.com/diasYuri/y/pkg/tools"
+	"github.com/diasYuri/y/pkg/tools/code_search"
 	"github.com/diasYuri/y/pkg/tools/filesystem"
 	"github.com/diasYuri/y/pkg/tools/git"
+	"github.com/diasYuri/y/pkg/tools/lsp"
 	"github.com/diasYuri/y/pkg/tools/shell"
 )
 
@@ -46,7 +48,7 @@ type AgentConfig struct {
 	// MaxTurns bounds the agent loop. Defaults to the agent default (32).
 	MaxTurns int
 	// Tools lists the built-in tool families to register: "filesystem",
-	// "shell", "git". Empty means all three.
+	// "code-search", "lsp", "shell", and "git". Empty means all families.
 	Tools []string
 	// Policy authorizes tool calls. Defaults to tools.WorkspacePolicy().
 	Policy tools.Policy
@@ -248,12 +250,16 @@ func newQuickstartRegistry(cfg AgentConfig, root string) (*tools.Registry, error
 		switch family {
 		case "filesystem":
 			err = filesystem.Register(registry, filesystem.Options{WorkspaceRoot: root, Policy: policy})
+		case "code-search":
+			err = codesearch.Register(registry, codesearch.Options{WorkspaceRoot: root, Policy: policy})
+		case "lsp":
+			err = lsp.Register(registry, lsp.Options{WorkspaceRoot: root, Policy: policy})
 		case "shell":
 			err = shell.Register(registry, shell.Options{WorkspaceRoot: root, Policy: policy})
 		case "git":
 			err = git.Register(registry, git.Options{WorkspaceRoot: root, Policy: policy})
 		default:
-			return nil, fmt.Errorf("coding: unknown tool family %q (one of filesystem, shell, git)", family)
+			return nil, fmt.Errorf("coding: unknown tool family %q (one of filesystem, code-search, lsp, shell, git)", family)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("coding: register %s tools: %w", family, err)
@@ -264,7 +270,7 @@ func newQuickstartRegistry(cfg AgentConfig, root string) (*tools.Registry, error
 
 func quickstartToolFamilies(selected []string) []string {
 	if len(selected) == 0 {
-		return []string{"filesystem", "shell", "git"}
+		return []string{"filesystem", "code-search", "lsp", "shell", "git"}
 	}
 	return append([]string(nil), selected...)
 }

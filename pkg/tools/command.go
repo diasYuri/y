@@ -78,6 +78,7 @@ type commandDetails struct {
 	StderrBytes     int64    `json:"stderr_bytes"`
 	StdoutTruncated bool     `json:"stdout_truncated,omitempty"`
 	StderrTruncated bool     `json:"stderr_truncated,omitempty"`
+	DurationMs      int64    `json:"duration_ms"`
 }
 
 func (t *shellTool) runCommand(ctx context.Context, req ToolRequest) (ToolResponse, error) {
@@ -156,6 +157,7 @@ func (t *shellTool) runCommand(ctx context.Context, req ToolRequest) (ToolRespon
 		StderrBytes:     result.StderrBytes,
 		StdoutTruncated: result.StdoutTruncated,
 		StderrTruncated: result.StderrTruncated,
+		DurationMs:      result.DurationMs,
 	})
 	if req.Progress != nil {
 		req.Progress(ToolProgress{ToolCallID: req.ID, ToolName: req.Name, Done: true})
@@ -183,9 +185,11 @@ type commandResult struct {
 	StderrTruncated bool
 	ExitCode        int
 	TimedOut        bool
+	DurationMs      int64
 }
 
 func executeCommand(ctx context.Context, spec commandSpec) (commandResult, error) {
+	startedAt := time.Now()
 	timeoutCtx := ctx
 	cancel := func() {}
 	if spec.timeout > 0 {
@@ -251,6 +255,7 @@ func executeCommand(ctx context.Context, spec commandSpec) (commandResult, error
 		StderrTruncated: stderrCapture.Truncated(),
 		ExitCode:        exitCodeFor(cmd, waitErr),
 		TimedOut:        timeoutCtx.Err() == context.DeadlineExceeded,
+		DurationMs:      time.Since(startedAt).Milliseconds(),
 	}
 	return result, nil
 }
@@ -260,6 +265,14 @@ func commandResultResponse(result commandResult, details any) (ToolResponse, err
 	resp := ToolResponse{
 		Content: []ContentBlock{{Type: ContentText, Text: text}},
 	}
+	resp.Metadata, _ = json.Marshal(map[string]any{
+		"duration_ms":  result.DurationMs,
+		"exit_status":  result.ExitCode,
+		"stdout_bytes": result.StdoutBytes,
+		"stderr_bytes": result.StderrBytes,
+		"truncated":    result.StdoutTruncated || result.StderrTruncated,
+		"timeout":      result.TimedOut,
+	})
 	if details != nil {
 		raw, err := json.Marshal(details)
 		if err != nil {

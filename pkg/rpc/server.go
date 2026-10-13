@@ -5,6 +5,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -162,10 +163,14 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.running = false
 	s.mu.Unlock()
-	if s.server == nil {
-		return nil
+	var closeErr error
+	if s.server != nil {
+		closeErr = s.server.Shutdown(ctx)
 	}
-	return s.server.Shutdown(ctx)
+	if closer, ok := s.cfg.ToolRegistry.(interface{ Close(context.Context) error }); ok {
+		closeErr = errors.Join(closeErr, closer.Close(ctx))
+	}
+	return closeErr
 }
 
 // handleRPC handles JSON-RPC POST requests.

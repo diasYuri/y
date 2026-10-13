@@ -237,6 +237,7 @@ func runHeadlessCommand(
 	if runtimeCode != 0 {
 		return runtimeCode
 	}
+	defer func() { _ = registry.Close(context.Background()) }()
 	defer func() { _ = extensionHost.Close(context.Background()) }()
 	agentOpts = append(agentOpts, agent.WithContextIdentity("", cwd, cwd, "", ""))
 	agentOpts = append(agentOpts, extensionHost.AgentOptions()...)

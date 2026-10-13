@@ -252,3 +252,107 @@ func TestGitCommitInDirtyWorktreeLeavesUnrelatedChanges(t *testing.T) {
 		t.Fatalf("git status = %q, want scratch.tmp still untracked/modified", string(out))
 	}
 }
+
+func TestGitInvestigationTools(t *testing.T) {
+	root := t.TempDir()
+	runGitCommand(t, root, "init")
+	runGitCommand(t, root, "config", "user.name", "Y Test")
+	runGitCommand(t, root, "config", "user.email", "y.test@example.com")
+	writeGitFile(t, root, "service.go", "package service\n\nfunc Authorize() string { return \"pending\" }\n")
+	runGitCommand(t, root, "add", "service.go")
+	runGitCommand(t, root, "commit", "-m", "add authorization")
+	writeGitFile(t, root, "service.go", "package service\n\nfunc Authorize() string { return \"approved\" }\n")
+	runGitCommand(t, root, "add", "service.go")
+	runGitCommand(t, root, "commit", "-m", "approve authorization")
+
+	reg := registerTestGit(t, root, ToolLimits{})
+	call := func(name string, args any) ToolResponse {
+		t.Helper()
+		resp, err := reg.Handle(context.Background(), ToolRequest{Name: name, WorkspaceRoot: root, Arguments: mustJSON(t, args)})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if resp.IsError {
+			t.Fatalf("%s returned error response: %#v", name, resp)
+		}
+		return resp
+	}
+
+	show := call("git_show", gitShowInput{Commit: "HEAD"})
+	var showResult gitShowResult
+	if err := json.Unmarshal(show.Details, &showResult); err != nil {
+		t.Fatal(err)
+	}
+	if showResult.CommitInfo.Subject != "approve authorization" || len(showResult.CommitInfo.Files) != 1 || showResult.CommitInfo.Files[0] != "service.go" || showResult.Patch != "" {
+		t.Fatalf("git_show result = %#v", showResult)
+	}
+	patch := call("git_show", gitShowInput{Commit: "HEAD", IncludePatch: true})
+	if !strings.Contains(patch.Content[0].Text, "approved") {
+		t.Fatalf("git_show patch omitted requested diff: %s", patch.Content[0].Text)
+	}
+
+	history := call("git_history", gitHistoryInput{Path: "service.go", MaxCommits: 10})
+	var historyResult gitHistoryResult
+	if err := json.Unmarshal(history.Details, &historyResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyResult.Commits) != 2 || historyResult.Commits[0].Subject != "approve authorization" {
+		t.Fatalf("git_history result = %#v", historyResult)
+	}
+	lineHistory := call("git_history", gitHistoryInput{Path: "service.go", Line: 3, MaxCommits: 10})
+	if err := json.Unmarshal(lineHistory.Details, &historyResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyResult.Commits) == 0 {
+		t.Fatalf("git_history line returned no commits: %#v", historyResult)
+	}
+
+	blame := call("git_blame", gitBlameInput{Path: "service.go", StartLine: 3, EndLine: 3})
+	var blameResult gitBlameResult
+	if err := json.Unmarshal(blame.Details, &blameResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(blameResult.Lines) != 1 || blameResult.Lines[0].Line != 3 || blameResult.Lines[0].Subject != "approve authorization" || !strings.Contains(blameResult.Lines[0].Text, "approved") {
+		t.Fatalf("git_blame result = %#v", blameResult)
+	}
+
+	search := call("git_search_history", gitSearchHistoryInput{Query: "approved", Mode: "string", Path: "service.go"})
+	if err := json.Unmarshal(search.Details, &historyResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyResult.Commits) != 1 || historyResult.Commits[0].Subject != "approve authorization" {
+		t.Fatalf("git_search_history -S result = %#v", historyResult)
+	}
+	search = call("git_search_history", gitSearchHistoryInput{Query: `return ".*approved`, Mode: "regex", Path: "service.go"})
+	if err := json.Unmarshal(search.Details, &historyResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyResult.Commits) != 1 {
+		t.Fatalf("git_search_history -G result = %#v", historyResult)
+	}
+	_, err := reg.Handle(context.Background(), ToolRequest{Name: "git_history", WorkspaceRoot: root, Arguments: mustJSON(t, gitHistoryInput{Path: "../outside"})})
+	if err == nil || !strings.Contains(err.Error(), "escapes the workspace") {
+		t.Fatalf("git path traversal error = %v", err)
+	}
+}
+
+func TestGitHistoryHandlesEmptyAndNonGitDirectories(t *testing.T) {
+	root := t.TempDir()
+	runGitCommand(t, root, "init")
+	reg := registerTestGit(t, root, ToolLimits{})
+	resp, err := reg.Handle(context.Background(), ToolRequest{Name: "git_history", WorkspaceRoot: root})
+	if err != nil {
+		t.Fatalf("empty repository history: %v", err)
+	}
+	var result gitHistoryResult
+	if err := json.Unmarshal(resp.Details, &result); err != nil || len(result.Commits) != 0 {
+		t.Fatalf("empty history result = %#v, error %v", result, err)
+	}
+
+	notGit := t.TempDir()
+	reg = registerTestGit(t, notGit, ToolLimits{})
+	_, err = reg.Handle(context.Background(), ToolRequest{Name: "git_history", WorkspaceRoot: notGit})
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("non-Git history error = %v", err)
+	}
+}

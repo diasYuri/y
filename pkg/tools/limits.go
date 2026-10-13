@@ -39,6 +39,9 @@ func filesystemLimits(base ToolLimits) ToolLimits {
 	if limits.MaxLineBytes <= 0 {
 		limits.MaxLineBytes = DefaultMaxLineBytes
 	}
+	if limits.CommandTimeoutSeconds <= 0 {
+		limits.CommandTimeoutSeconds = DefaultCommandTimeoutSeconds
+	}
 	return limits
 }
 
