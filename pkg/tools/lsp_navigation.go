@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -475,7 +476,7 @@ func normalizeLSPValue(value any, root, currentPath, fallbackText string, cache 
 			if currentPath != "" {
 				resolved, err := resolveForRead(root, currentPath)
 				if err == nil && !resolved.EscapesWorkspace {
-					if rel, relErr := filepath.Rel(root, resolved.Absolute); relErr == nil {
+					if rel, relErr := filepath.Rel(resolved.WorkspaceRoot, resolved.Absolute); relErr == nil {
 						typed["path"] = filepath.ToSlash(rel)
 						currentPath = resolved.Absolute
 					}
@@ -687,7 +688,11 @@ func lspURIPath(value string) string {
 	if err != nil || parsed.Scheme != "file" {
 		return ""
 	}
-	return filepath.FromSlash(parsed.Path)
+	path := parsed.Path
+	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	return filepath.FromSlash(path)
 }
 
 func countTopLevel(raw []byte) int {

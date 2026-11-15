@@ -125,7 +125,7 @@ func (m Manifest) Validate(path string) error {
 	if strings.TrimSpace(m.Entry) == "" {
 		return newManifestError(path, "entry", "must point to a .wasm file", 0, nil)
 	}
-	if filepath.IsAbs(m.Entry) || strings.Contains(filepath.ToSlash(m.Entry), "..") {
+	if strings.HasPrefix(filepath.ToSlash(m.Entry), "/") || filepath.IsAbs(m.Entry) || strings.Contains(filepath.ToSlash(m.Entry), "..") {
 		return newManifestError(path, "entry", "must be a relative path inside the extension directory", 0, nil)
 	}
 	if !strings.HasSuffix(strings.ToLower(m.Entry), ".wasm") {

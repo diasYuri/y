@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -38,6 +39,9 @@ func TestStoreAtomicWriteRead(t *testing.T) {
 }
 
 func TestStorePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not supported on Windows")
+	}
 	dir := t.TempDir()
 	store := NewStoreAt(filepath.Join(dir, "auth.json"))
 

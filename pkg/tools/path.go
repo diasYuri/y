@@ -51,20 +51,15 @@ func resolvePath(workspaceRoot, input string, followFinal bool) (resolvedPath, e
 
 	checked := candidate
 	if followFinal {
-		if evaluated, err := filepath.EvalSymlinks(candidate); err == nil {
-			checked = evaluated
-		}
+		checked = resolveExistingAncestor(candidate)
 	} else {
-		parent := filepath.Dir(candidate)
-		if evaluated, err := filepath.EvalSymlinks(parent); err == nil {
-			checked = filepath.Join(evaluated, filepath.Base(candidate))
-		}
+		checked = filepath.Join(resolveExistingAncestor(filepath.Dir(candidate)), filepath.Base(candidate))
 	}
 
 	return resolvedPath{
 		WorkspaceRoot:    root,
 		Input:            input,
-		Absolute:         candidate,
+		Absolute:         checked,
 		EscapesWorkspace: !isInside(root, checked),
 	}, nil
 }
@@ -75,4 +70,16 @@ func isInside(root, candidate string) bool {
 		return false
 	}
 	return rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// resolveExistingAncestor canonicalizes parent aliases even for a new file.
+func resolveExistingAncestor(path string) string {
+	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
+		return evaluated
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(resolveExistingAncestor(parent), filepath.Base(path))
 }

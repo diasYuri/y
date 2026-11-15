@@ -2,6 +2,7 @@ package tools
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -47,11 +48,6 @@ func TestResolvePathEscapesWorkspace(t *testing.T) {
 }
 
 func TestResolvePathAbsoluteInside(t *testing.T) {
-	// Skip on macOS because /tmp is a symlink to /private/tmp and
-	// EvalSymlinks changes the root while the absolute input does not.
-	if os.Getenv("CI") == "" {
-		t.Skip("skipped: macOS /tmp symlink edge case")
-	}
 	root := t.TempDir()
 	r, err := resolveForRead(root, root+"/foo.txt")
 	if err != nil {
@@ -64,7 +60,7 @@ func TestResolvePathAbsoluteInside(t *testing.T) {
 
 func TestResolvePathAbsoluteOutside(t *testing.T) {
 	root := t.TempDir()
-	r, err := resolveForRead(root, "/tmp/outside.txt")
+	r, err := resolveForRead(root, filepath.Join(t.TempDir(), "outside.txt"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
