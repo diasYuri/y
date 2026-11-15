@@ -49,7 +49,7 @@ func resolvePath(workspaceRoot, input string, followFinal bool) (resolvedPath, e
 		candidate = abs
 	}
 
-	checked := candidate
+	var checked string
 	if followFinal {
 		checked = resolveExistingAncestor(candidate)
 	} else {
