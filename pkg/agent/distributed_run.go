@@ -23,6 +23,11 @@ func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse,
 	lock.Lock()
 	defer lock.Unlock()
 
+	ctx, finish, err := r.beginExecution(ctx, request.RunID)
+	if err != nil {
+		return RunResponse{}, err
+	}
+	defer finish()
 	state, expectedVersion, err := r.loadInitial(ctx, request)
 	if err != nil {
 		return RunResponse{}, err
@@ -269,6 +274,7 @@ func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse,
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+	r.activate(request.RunID, ag, cancel)
 	var monitorDone chan struct{}
 	if r.control != nil {
 		monitorDone = make(chan struct{})
@@ -337,6 +343,7 @@ func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse,
 			if eventStoreErr == nil {
 				eventStoreErr = err
 			}
+			cancel()
 			return true
 		}
 		if envelope.EventID != "" {
@@ -345,6 +352,7 @@ func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse,
 		if envelope.IdempotencyKey != "" {
 			seenIdempotencyKeys[envelope.IdempotencyKey] = struct{}{}
 		}
+		r.publish(envelope)
 		return true
 	}
 	unsubscribe := ag.Subscribe(func(event Event) {
@@ -377,6 +385,7 @@ func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse,
 			state.LeaseExpiresAt = lease.ExpiresAt
 			if err := r.saveState(context.Background(), request.RunID, expectedVersion, state); err != nil && !errors.Is(err, ErrStateNotFound) {
 				checkpointErr = err
+				cancel()
 				return
 			} else {
 				state.Version = expectedVersion + 1
@@ -419,6 +428,7 @@ func (r *AgentRunner) Run(ctx context.Context, request RunRequest) (RunResponse,
 	} else {
 		result, runErr = ag.RunMessages(runCtx, messages...)
 	}
+	r.settle(request.RunID)
 	status := statusForResult(result, runErr)
 	if checkpointErr != nil && runErr == nil {
 		runErr = checkpointErr

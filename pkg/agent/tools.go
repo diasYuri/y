@@ -212,6 +212,9 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	}
 	a.recordAccounting(measurement)
 	if err != nil {
+		if errors.Is(err, ErrOperationInDoubt) || errors.Is(err, ErrOperationStoreUnavailable) {
+			return ai.Message{}, err
+		}
 		var approvalErr *tools.ApprovalError
 		if errors.As(err, &approvalErr) {
 			return ai.Message{}, err

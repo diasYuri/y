@@ -140,13 +140,13 @@ func (m *Manager) prompt() string {
 	builder.WriteString("If a task becomes larger or changes scope, use task_refine to split it into ordered child tasks. ")
 	builder.WriteString("Use task_start while working and task_complete only after the work is actually finished. ")
 	builder.WriteString("Do not give the final answer while any task remains open.\n")
-	builder.WriteString(fmt.Sprintf("Current task summary: %d total, %d completed, %d open.\n", summary.Total, summary.Completed, summary.Open))
+	_, _ = fmt.Fprintf(&builder, "Current task summary: %d total, %d completed, %d open.\n", summary.Total, summary.Completed, summary.Open)
 	if tasks := m.List(); len(tasks) > 0 {
 		builder.WriteString("Current tasks:\n")
 		for _, task := range tasks {
-			builder.WriteString(fmt.Sprintf("- [%s] %s: %s", task.Status, task.ID, task.Name))
+			_, _ = fmt.Fprintf(&builder, "- [%s] %s: %s", task.Status, task.ID, task.Name)
 			if task.ParentID != "" {
-				builder.WriteString(fmt.Sprintf(" (parent %s)", task.ParentID))
+				_, _ = fmt.Fprintf(&builder, " (parent %s)", task.ParentID)
 			}
 			builder.WriteByte('\n')
 		}

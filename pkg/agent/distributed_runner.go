@@ -35,6 +35,13 @@ type AgentRunner struct {
 	tracer           telemetry.Tracer
 	runLocksMu       sync.Mutex
 	runLocks         map[string]*sync.Mutex
+	activeMu         sync.Mutex
+	active           map[string]*activeExecution
+	closed           bool
+	activeWG         sync.WaitGroup
+	subsMu           sync.RWMutex
+	subs             map[uint64]func(EventEnvelope)
+	nextSub          uint64
 }
 
 // eventBackedToolRegistry reconciles a tool call from the durable event log
@@ -150,7 +157,7 @@ func (r *eventBackedToolRegistry) Handle(ctx context.Context, request tools.Tool
 			return response, err
 		}
 		if completeErr := r.operations.CompleteOperation(ctx, request.IdempotencyKey, response, err); completeErr != nil {
-			return response, fmt.Errorf("complete durable operation: %w", completeErr)
+			return response, fmt.Errorf("%w: complete durable operation: %w", ErrOperationInDoubt, completeErr)
 		}
 	}
 	return response, err
@@ -398,4 +405,13 @@ type RunResponse struct {
 	Snapshot Snapshot        `json:"snapshot"`
 	Result   RunResult       `json:"result"`
 	Events   []EventEnvelope `json:"events,omitempty"`
+}
+
+// wrapRuntimeTools preserves durable operation enforcement when an immutable
+// runtime view supplies its own captured registry instead of the runner base.
+func (r *eventBackedToolRegistry) wrapRuntimeTools(captured ToolRegistry) ToolRegistry {
+	if captured == r {
+		return r
+	}
+	return &eventBackedToolRegistry{base: captured, events: r.events, operations: r.operations}
 }

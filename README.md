@@ -44,3 +44,5 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" ./cmd/y
 
 For build profiles (`y-minimal`, `y-standard`, `y-full`) and
 cross-compilation, see the `make` targets and `scripts/` helpers.
+
+Reusable local SDK adapters and active execution APIs are documented in [Local SDK services](docs/local-sdk.md).
