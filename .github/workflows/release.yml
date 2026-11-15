@@ -70,11 +70,15 @@ jobs:
             --version "$VERSION" \
             --flavor "$RELEASE_FLAVOR" \
             --output-dir dist
+          # Tag releases also ship WASM/RPC/LSP-enabled binaries.
+          if [ "${{ github.event_name }}" = "push" ] && [ "$RELEASE_FLAVOR" != "full" ]; then
+            ./scripts/release.sh --version "$VERSION" --flavor full --output-dir dist
+          fi
 
       - name: Upload release artefacts
         uses: actions/upload-artifact@v4
         with:
-          name: y-${{ steps.version.outputs.version }}-${{ env.RELEASE_FLAVOR }}
+          name: y-${{ steps.version.outputs.version }}
           path: |
             dist/*.tar.gz
             dist/*.zip
