@@ -103,6 +103,7 @@ func (a *Agent) acquireRuntimeView(ctx context.Context) (*RuntimeView, error) {
 				return errors.Join(snapshot.Close(), callRelease(oldRelease))
 			}
 		}
+		a.wrapRuntimeTools(view, registry)
 		return view, nil
 	}
 
@@ -213,6 +214,9 @@ func (a *Agent) acquireRuntimeView(ctx context.Context) (*RuntimeView, error) {
 			_ = toolSnapshot.Close()
 		}
 	}
+	if err == nil {
+		a.wrapRuntimeTools(view, registry)
+	}
 	return view, err
 }
 
@@ -221,4 +225,12 @@ func callRelease(release func() error) error {
 		return nil
 	}
 	return release()
+}
+
+func (a *Agent) wrapRuntimeTools(view *RuntimeView, registry ToolRegistry) {
+	if decorator, ok := registry.(interface {
+		wrapRuntimeTools(ToolRegistry) ToolRegistry
+	}); ok {
+		view.registry = decorator.wrapRuntimeTools(view.registry)
+	}
 }

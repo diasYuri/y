@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.0 — Local SDK harness services
+
+- Add injected OAuth device/PKCE/refresh clients without terminal or storage dependencies.
+- Add public pure-Go SQLite checkpoint, transcript, event, operation, session, branch and metadata adapters.
+- Expose the filesystem memory adapter with native Unix/Windows locking; retain internal compatibility aliases.
+- Add validated task-manager snapshot/restore preserving identity and hierarchy.
+- Expose active AgentRunner subscriptions, steering, follow-ups, cancellation and close.
+- Keep captured RuntimeView tool dispatch inside the durable OperationStore boundary; stop uncertain effects before model retry.
+- Correct architecture checks to use the current module name and recognize the application composition root.
+
+
 ## [1.2.0] - 2026-11-15
 
 ### Added

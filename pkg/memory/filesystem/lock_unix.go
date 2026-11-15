@@ -1,6 +1,6 @@
 //go:build !windows
 
-package memory
+package filesystem
 
 import (
 	"os"

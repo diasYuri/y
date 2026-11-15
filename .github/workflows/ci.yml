@@ -13,6 +13,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: go1.27.4
+  CGO_ENABLED: "0"
+
 jobs:
   lint:
     name: gofmt + go vet
@@ -24,7 +28,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.27.4"
+          check-latest: false
           cache: true
 
       - name: gofmt
@@ -49,7 +54,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.27.4"
+          check-latest: false
           cache: true
 
       - name: go test
@@ -89,7 +95,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.27.4"
+          check-latest: false
           cache: true
 
       - name: Build all binaries (host platform, ${{ matrix.flavor }})
