@@ -10,10 +10,11 @@ import (
 type Kind string
 
 const (
-	KindFeature  Kind = "feature"
-	KindProvider Kind = "provider"
-	KindTool     Kind = "tool"
-	KindCommand  Kind = "command"
+	KindFeature   Kind = "feature"
+	KindProvider  Kind = "provider"
+	KindTool      Kind = "tool"
+	KindCommand   Kind = "command"
+	KindComponent Kind = "component"
 )
 
 // Descriptor describes a compiled or known capability.
@@ -52,6 +53,11 @@ func (r *Registry) AddTool(id, buildTag, description string) error {
 // AddCommand registers a compiled CLI command.
 func (r *Registry) AddCommand(id, description string) error {
 	return r.Add(Descriptor{Kind: KindCommand, ID: id, Description: description})
+}
+
+// AddComponent registers a compiled component definition.
+func (r *Registry) AddComponent(id, buildTag, description string) error {
+	return r.Add(Descriptor{Kind: KindComponent, ID: id, BuildTag: buildTag, Description: description})
 }
 
 // Add inserts a compiled capability descriptor.

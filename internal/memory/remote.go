@@ -19,6 +19,19 @@ type RemoteStore struct {
 	FailOpen bool
 }
 
+// CheckReadiness bypasses fail-open read behavior so a required-persistence
+// component cannot mistake an unavailable remote backend for an empty store.
+func (s *RemoteStore) CheckReadiness(ctx context.Context) error {
+	if s == nil || s.Backend == nil {
+		return pmemory.ErrPersistenceUnavailable
+	}
+	if checker, ok := s.Backend.(pmemory.ReadinessChecker); ok {
+		return checker.CheckReadiness(ctx)
+	}
+	_, err := s.Backend.Version(ctx, ycontext.Request{})
+	return err
+}
+
 func (s *RemoteStore) Search(ctx context.Context, query pmemory.Query) ([]pmemory.Memory, error) {
 	if s == nil || s.Backend == nil {
 		return nil, nil

@@ -30,6 +30,18 @@ func (a *Agent) emit(event Event) {
 	if event.ToolCallID == "" && event.ToolCall.ID != "" {
 		event.ToolCallID = event.ToolCall.ID
 	}
+	if event.RuntimeViewID == "" && a.activeRuntimeView.ID != "" {
+		event.RuntimeViewID = a.activeRuntimeView.ID
+	}
+	if event.ToolOwnerID == "" && event.ToolCall.Name != "" {
+		for _, origin := range a.activeRuntimeView.Tools {
+			if origin.Name == event.ToolCall.Name {
+				event.ToolOwnerID = origin.Owner
+				event.ToolOwnerGeneration = origin.Generation
+				break
+			}
+		}
+	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}

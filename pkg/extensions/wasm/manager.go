@@ -9,6 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/diasYuri/y/pkg/component"
 	"sync"
 )
 
@@ -154,7 +157,7 @@ type Config struct {
 	Policy Policy
 	// AllowedCapabilities lists capabilities the host is willing to grant
 	// at all. Manifest declarations are intersected with this list before
-	// being applied. Nil grants every capability declared by the manifest.
+	// being applied. Nil denies every capability.
 	AllowedCapabilities []Capability
 	// Invoker handles the y_tools capability by routing tool_invoke
 	// envelopes back into the host. A nil invoker rejects tool_invoke
@@ -192,6 +195,28 @@ func (c Config) resolveLimits(m Manifest) Limits {
 	return limitForManifest(merged, m)
 }
 
+// ValidateManifest checks runtime requirements before acquiring guest resources.
+// Fuel metering is unavailable in this engine; requested guarantees must never
+// be silently weakened to a wall-clock timeout.
+func (c Config) ValidateManifest(m Manifest) error {
+	if err := m.Validate(m.ID); err != nil {
+		return err
+	}
+	if c.resolveLimits(m).Fuel != 0 {
+		return fmt.Errorf("WASM extension %q: fuel metering is unsupported; use timeout_ms and host-call quotas", m.ID)
+	}
+	if m.Runtime.MinYVersion != "" {
+		version := component.VersionConstraint{MinInclusive: m.Runtime.MinYVersion}
+		if err := version.Validate(); err != nil {
+			return fmt.Errorf("WASM extension %q min_y_version: %w", m.ID, err)
+		}
+		if !version.Matches(strings.TrimPrefix(c.HostVersion, "v")) {
+			return fmt.Errorf("WASM extension %q requires Y >= %s, host version is %q", m.ID, m.Runtime.MinYVersion, c.HostVersion)
+		}
+	}
+	return nil
+}
+
 // resolvedPolicy returns a Policy that is never nil. The deny-all default
 // keeps the host safe even when callers forget to wire a policy.
 func (c Config) resolvedPolicy() Policy {
@@ -201,13 +226,13 @@ func (c Config) resolvedPolicy() Policy {
 	return DenyAllPolicy()
 }
 
-// resolvedAllowed returns the intersection allowlist, defaulting to every
-// known capability so manifests do not have to declare them twice.
+// resolvedAllowed returns the host grant ceiling. An omitted allowlist grants
+// nothing; a manifest can request authority but cannot grant it to itself.
 func (c Config) resolvedAllowed() []Capability {
 	if c.AllowedCapabilities != nil {
 		return c.AllowedCapabilities
 	}
-	return AllCapabilities()
+	return nil
 }
 
 // state holds the bookkeeping shared by every Manager implementation.

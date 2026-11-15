@@ -71,6 +71,15 @@ type SourceInfo struct {
 	Count   int    `json:"count"`
 }
 
+// SourceOrigin identifies a source registration without exposing its runtime
+// value. Owner and Generation are empty for resolver-lifetime sources.
+type SourceOrigin struct {
+	Index      int    `json:"index"`
+	Name       string `json:"name"`
+	Owner      string `json:"owner,omitempty"`
+	Generation uint64 `json:"generation,omitempty"`
+}
+
 // Result is deterministic for a fixed request, source version set, and source
 // output. Fingerprint can be persisted with a run for replay diagnostics.
 type Result struct {
@@ -85,16 +94,93 @@ type Result struct {
 // Resolver composes sources in deterministic precedence order and caches by
 // request plus source versions. It is safe for concurrent requests.
 type Resolver struct {
-	mu      sync.RWMutex
-	sources []ContextSource
-	cache   map[string]Result
+	mu           sync.RWMutex
+	sources      []*sourceEntry
+	activeOwners map[string]uint64
+	revision     uint64
+	cache        map[string]Result
+}
+
+type sourceEntry struct {
+	source     ContextSource
+	gate       *sourceGate
+	owner      string
+	generation uint64
+}
+
+type sourceGate struct {
+	mu        sync.Mutex
+	active    bool
+	inflight  int
+	snapshots int
+	done      chan struct{}
+	finished  bool
+}
+
+func newSourceGate() *sourceGate { return &sourceGate{active: true, done: make(chan struct{})} }
+
+func (g *sourceGate) acquire() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.active {
+		return false
+	}
+	g.inflight++
+	return true
+}
+
+func (g *sourceGate) release() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.inflight--
+	g.finishIfDrained()
+}
+
+func (g *sourceGate) acquireSnapshot() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.active {
+		return false
+	}
+	g.snapshots++
+	return true
+}
+
+func (g *sourceGate) releaseSnapshot() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.snapshots--
+	g.finishIfDrained()
+}
+
+func (g *sourceGate) retire() <-chan struct{} {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.active = false
+	g.finishIfDrained()
+	return g.done
+}
+
+func (g *sourceGate) finishIfDrained() {
+	if !g.active && g.inflight == 0 && g.snapshots == 0 && !g.finished {
+		g.finished = true
+		close(g.done)
+	}
+}
+
+// SourceRegistration owns one context source. Closing it removes the source
+// from future resolutions and waits for resolutions that already captured it.
+type SourceRegistration struct {
+	resolver *Resolver
+	entry    *sourceEntry
 }
 
 func NewResolver(sources ...ContextSource) *Resolver {
-	r := &Resolver{cache: make(map[string]Result)}
+	r := &Resolver{cache: make(map[string]Result), activeOwners: make(map[string]uint64)}
 	for _, source := range sources {
 		if source != nil {
-			r.sources = append(r.sources, source)
+			r.sources = append(r.sources, &sourceEntry{source: source, gate: newSourceGate()})
+			r.revision++
 		}
 	}
 	return r
@@ -104,24 +190,131 @@ func (r *Resolver) Add(source ContextSource) error {
 	if source == nil {
 		return errors.New("context source is nil")
 	}
+	if r == nil {
+		return errors.New("context resolver is nil")
+	}
 	r.mu.Lock()
-	r.sources = append(r.sources, source)
+	r.sources = append(r.sources, &sourceEntry{source: source, gate: newSourceGate()})
+	r.revision++
 	r.cache = make(map[string]Result)
 	r.mu.Unlock()
 	return nil
 }
 
+// Register adds a context source and returns a handle that removes it and
+// drains resolutions already using it. Use Add for resolver-lifetime sources.
+func (r *Resolver) Register(source ContextSource) (*SourceRegistration, error) {
+	return r.registerOwned(source, "", 0)
+}
+
+// RegisterScoped registers a source with the owner generation supplied by the
+// component scope. Snapshots include it only while that generation is active.
+func (r *Resolver) RegisterScoped(source ContextSource, owner string, generation uint64) (*SourceRegistration, error) {
+	if owner == "" || generation == 0 {
+		return nil, errors.New("context source owner and generation are required")
+	}
+	return r.registerOwned(source, owner, generation)
+}
+
+func (r *Resolver) registerOwned(source ContextSource, owner string, generation uint64) (*SourceRegistration, error) {
+	if source == nil {
+		return nil, errors.New("context source is nil")
+	}
+	if r == nil {
+		return nil, errors.New("context resolver is nil")
+	}
+	entry := &sourceEntry{source: source, gate: newSourceGate(), owner: owner, generation: generation}
+	r.mu.Lock()
+	r.sources = append(r.sources, entry)
+	r.revision++
+	r.cache = make(map[string]Result)
+	r.mu.Unlock()
+	return &SourceRegistration{resolver: r, entry: entry}, nil
+}
+
+// Close retires the source. A timeout only stops this wait; the source remains
+// retired and a later Close call can observe its drain.
+func (s *SourceRegistration) Close(ctx context.Context) error {
+	if s == nil || s.resolver == nil || s.entry == nil {
+		return nil
+	}
+	r := s.resolver
+	r.mu.Lock()
+	for i, entry := range r.sources {
+		if entry == s.entry {
+			r.sources = append(r.sources[:i], r.sources[i+1:]...)
+			r.revision++
+			break
+		}
+	}
+	done := s.entry.gate.retire()
+	r.cache = make(map[string]Result)
+	r.mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-done:
+		r.mu.Lock()
+		r.cache = make(map[string]Result)
+		r.mu.Unlock()
+		return nil
+	default:
+	}
+	select {
+	case <-done:
+		r.mu.Lock()
+		r.cache = make(map[string]Result)
+		r.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		go func() {
+			<-done
+			r.mu.Lock()
+			r.cache = make(map[string]Result)
+			r.mu.Unlock()
+		}()
+		return ctx.Err()
+	}
+}
+
 func (r *Resolver) Sources() []ContextSource {
+	if r == nil {
+		return nil
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return append([]ContextSource(nil), r.sources...)
+	out := make([]ContextSource, 0, len(r.sources))
+	for _, entry := range r.sources {
+		if entry.owner != "" && r.activeOwners[entry.owner] != entry.generation {
+			continue
+		}
+		out = append(out, entry.source)
+	}
+	return out
 }
 
 func (r *Resolver) Resolve(ctx context.Context, request Request) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	sources := r.Sources()
+	entries := r.snapshotSources()
+	defer func() {
+		for _, entry := range entries {
+			entry.gate.release()
+		}
+	}()
+	return r.resolveCaptured(ctx, request, entries)
+}
+
+func (r *Resolver) resolveCaptured(ctx context.Context, request Request, entries []*sourceEntry) (Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sources := make([]ContextSource, len(entries))
+	for i, entry := range entries {
+		sources[i] = entry.source
+	}
 	cacheKey, versions, err := r.cacheKey(ctx, request, sources)
 	if err != nil {
 		return Result{}, err
@@ -161,6 +354,21 @@ func (r *Resolver) Resolve(ctx context.Context, request Request) (Result, error)
 	r.cache[cacheKey] = cloneResult(result)
 	r.mu.Unlock()
 	return result, nil
+}
+
+func (r *Resolver) snapshotSources() []*sourceEntry {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entries := make([]*sourceEntry, 0, len(r.sources))
+	for _, entry := range r.sources {
+		if (entry.owner == "" || r.activeOwners[entry.owner] == entry.generation) && entry.gate.acquire() {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
 }
 
 // Invalidate removes all cached resolutions. Source adapters should call this

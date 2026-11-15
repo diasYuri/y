@@ -3,5 +3,8 @@
 package feature
 
 func registerAnthropicIfCompiled(r *Registry) error {
-	return r.AddProvider("anthropic", "feature_anthropic", "Anthropic provider.")
+	if err := r.AddProvider("anthropic", "feature_anthropic", "Anthropic provider."); err != nil {
+		return err
+	}
+	return r.AddComponent("provider.anthropic", "feature_anthropic", "Anthropic provider component.")
 }

@@ -13,16 +13,16 @@ import (
 	"strings"
 	"time"
 
-	openaisdk "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/packages/param"
-	"github.com/openai/openai-go/v3/responses"
-	"github.com/openai/openai-go/v3/shared"
 	"github.com/diasYuri/y/pkg/ai"
 	"github.com/diasYuri/y/pkg/providers"
 	"github.com/diasYuri/y/pkg/providers/auth"
 	"github.com/diasYuri/y/pkg/providers/internal/retryafter"
 	"github.com/diasYuri/y/pkg/providers/internal/sdkstream"
+	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 const (

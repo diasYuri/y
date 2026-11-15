@@ -34,6 +34,16 @@ var knownCapabilities = []Descriptor{
 	{Kind: KindCommand, ID: "session.list", Description: "List saved sessions for the current workspace."},
 	{Kind: KindCommand, ID: "session.show", Description: "Print a saved session transcript as JSONL."},
 
+	{Kind: KindComponent, ID: "extensions.host", Description: "Built-in extension manager."},
+	{Kind: KindComponent, ID: "extensions.memory", Description: "Memory context and tools."},
+	{Kind: KindComponent, ID: "policy.default", Description: "Default workspace policy."},
+	{Kind: KindComponent, ID: "provider.auto", Description: "Select the configured provider."},
+	{Kind: KindComponent, ID: "sessions.filesystem", Description: "File-backed transcript store."},
+	{Kind: KindComponent, ID: "telemetry.default", Description: "Build-selected telemetry emitter."},
+	{Kind: KindComponent, ID: "tools.default", Description: "Build-selected native tool registry."},
+	{Kind: KindComponent, ID: "subagents", Description: "Subagent execution tools and hooks."},
+	{Kind: KindComponent, ID: "task_manager", Description: "Task planning and lifecycle tools."},
+
 	{Kind: KindFeature, ID: "filesystem", BuildTag: "feature_fs", Description: "Filesystem tools."},
 	{Kind: KindFeature, ID: "git", BuildTag: "feature_git", Description: "Git integration."},
 	{Kind: KindFeature, ID: "lsp", BuildTag: "feature_lsp", Description: "Language server integration."},
@@ -47,6 +57,11 @@ var knownCapabilities = []Descriptor{
 	{Kind: KindProvider, ID: "google", BuildTag: "feature_google", Description: "Google provider."},
 	{Kind: KindProvider, ID: "local", BuildTag: "feature_local", Description: "Local/OpenAI-compatible providers."},
 	{Kind: KindProvider, ID: "openai", BuildTag: "feature_openai", Description: "OpenAI provider."},
+
+	{Kind: KindComponent, ID: "provider.anthropic", BuildTag: "feature_anthropic", Description: "Anthropic provider component."},
+	{Kind: KindComponent, ID: "provider.google", BuildTag: "feature_google", Description: "Google provider component."},
+	{Kind: KindComponent, ID: "provider.local", BuildTag: "feature_local", Description: "Local provider component."},
+	{Kind: KindComponent, ID: "provider.openai", BuildTag: "feature_openai", Description: "OpenAI provider component."},
 
 	{Kind: KindTool, ID: "git_commit", BuildTag: "feature_git", Description: "Create a git commit."},
 	{Kind: KindTool, ID: "git_diff", BuildTag: "feature_git", Description: "Read git diff."},

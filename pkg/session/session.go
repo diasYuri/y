@@ -23,7 +23,9 @@ type SessionSummary struct {
 	Truncated    bool      `json:"truncated"`
 }
 
-// Store persists and locates agent transcripts.
+// Store persists and locates agent transcripts. Stored transcripts are durable
+// data owned by the session backend; closing a component that uses this store
+// does not delete them.
 //
 // Implementations may use files, a database, or another backend. The
 // serialization format and storage location are intentionally not part of

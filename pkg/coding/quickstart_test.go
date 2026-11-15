@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/diasYuri/y/pkg/providers/openai_compatible"
+	"github.com/diasYuri/y/pkg/providers/openai"
 	"github.com/diasYuri/y/pkg/tools"
 )
 
@@ -195,7 +195,10 @@ func TestQuickstartRegistry_UsesInjectedPolicy(t *testing.T) {
 
 func TestNewAgent_ModelFromCuratedList(t *testing.T) {
 	t.Parallel()
-	models := openai_compatible.CuratedModels()
+	models, err := openai.NewCompatible("http://localhost:1").Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(models) == 0 {
 		t.Skip("no curated models")
 	}

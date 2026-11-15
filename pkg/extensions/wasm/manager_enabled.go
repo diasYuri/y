@@ -17,19 +17,19 @@ import (
 )
 
 // activeManager is the wazero-backed implementation used in builds compiled
-// with the feature_wasm_ext tag. It holds a single wazero.Runtime that is
-// reused across extensions so that warm modules can share host resources.
+// with the feature_wasm_ext tag. Runtimes are shared only by modules with
+// the same memory ceiling, so loading order cannot weaken a guest limit.
 type activeManager struct {
-	cfg     Config
-	state   *state
-	runtime wazero.Runtime
-	hostMod api.Module
-	wasiOK  bool
+	cfg      Config
+	state    *state
+	runtimes map[uint32]wazero.Runtime
+	loadMu   sync.Mutex
 
-	mu      sync.Mutex
-	loaded  map[string]*loadedModule
-	closed  bool
-	loadOrd []string
+	mu       sync.Mutex
+	loaded   map[string]*loadedModule
+	retiring map[string]*loadedModule
+	closed   bool
+	loadOrd  []string
 }
 
 // loadedModule tracks a warm guest instance plus the resolved capability
@@ -48,6 +48,60 @@ type loadedModule struct {
 	fnShutdown api.Function
 	fnFree     api.Function
 	fnMalloc   api.Function
+	execGate   chan struct{}
+	callMu     sync.Mutex
+	accepting  bool
+	inFlight   int
+	drained    chan struct{}
+	closeMu    sync.Mutex
+	moduleDone bool
+	moduleErr  error
+}
+
+func (mod *loadedModule) acquireCall() bool {
+	mod.callMu.Lock()
+	defer mod.callMu.Unlock()
+	if !mod.accepting {
+		return false
+	}
+	mod.inFlight++
+	return true
+}
+
+func (mod *loadedModule) releaseCall() {
+	mod.callMu.Lock()
+	defer mod.callMu.Unlock()
+	mod.inFlight--
+	mod.finishDrainLocked()
+}
+
+func (mod *loadedModule) retireCalls() <-chan struct{} {
+	mod.callMu.Lock()
+	defer mod.callMu.Unlock()
+	mod.accepting = false
+	mod.finishDrainLocked()
+	return mod.drained
+}
+
+func (mod *loadedModule) finishDrainLocked() {
+	if !mod.accepting && mod.inFlight == 0 && mod.drained != nil {
+		select {
+		case <-mod.drained:
+		default:
+			close(mod.drained)
+		}
+	}
+}
+
+func (m *activeManager) finalizeModule(ctx context.Context, mod *loadedModule) error {
+	mod.closeMu.Lock()
+	defer mod.closeMu.Unlock()
+	if mod.moduleDone {
+		return mod.moduleErr
+	}
+	mod.moduleErr = errors.Join(m.shutdownModule(ctx, mod), mod.module.Close(ctx))
+	mod.moduleDone = true
+	return mod.moduleErr
 }
 
 // NewManager constructs the wazero-backed Manager. Module instantiation is
@@ -56,13 +110,11 @@ func NewManager(cfg Config) Manager {
 	if !cfg.LazyLoad && cfg.MaxLoadedModules == 0 {
 		cfg.LazyLoad = true
 	}
-	if cfg.DefaultLimits == (Limits{}) {
-		cfg.DefaultLimits = DefaultLimits()
-	}
 	return &activeManager{
-		cfg:    cfg,
-		state:  newState(cfg),
-		loaded: make(map[string]*loadedModule),
+		cfg:      cfg,
+		state:    newState(cfg),
+		loaded:   make(map[string]*loadedModule),
+		retiring: make(map[string]*loadedModule),
 	}
 }
 
@@ -80,6 +132,8 @@ func (m *activeManager) Get(id string) (ExtensionInfo, error) {
 }
 
 func (m *activeManager) Load(ctx context.Context, id string) error {
+	m.loadMu.Lock()
+	defer m.loadMu.Unlock()
 	entry, ok := m.state.lookup(id)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
@@ -90,38 +144,49 @@ func (m *activeManager) Load(ctx context.Context, id string) error {
 		m.mu.Unlock()
 		return errors.New("wasm manager is closed")
 	}
+	if _, retiring := m.retiring[id]; retiring {
+		m.mu.Unlock()
+		return fmt.Errorf("WASM extension %q is retiring", id)
+	}
 	if _, alreadyLoaded := m.loaded[id]; alreadyLoaded {
 		m.mu.Unlock()
 		return nil
 	}
+	if m.cfg.MaxLoadedModules > 0 && len(m.loaded)+len(m.retiring) >= m.cfg.MaxLoadedModules {
+		m.mu.Unlock()
+		return fmt.Errorf("WASM extension %q: loaded module limit reached (%d)", id, m.cfg.MaxLoadedModules)
+	}
 	m.mu.Unlock()
 
+	if err := m.cfg.ValidateManifest(entry.manifest); err != nil {
+		return err
+	}
 	mod, err := m.instantiate(ctx, entry)
 	if err != nil {
 		m.state.updateStatus(id, StatusFailed, err)
 		return err
 	}
 
+	if err := m.invokeInit(ctx, mod); err != nil {
+		_ = mod.module.Close(ctx)
+		m.state.updateStatus(id, StatusFailed, err)
+		return err
+	}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		_ = mod.module.Close(ctx)
 		return errors.New("wasm manager is closed")
 	}
+	if _, alreadyLoaded := m.loaded[id]; alreadyLoaded {
+		m.mu.Unlock()
+		_ = mod.module.Close(ctx)
+		return nil
+	}
 	m.loaded[id] = mod
 	m.loadOrd = append(m.loadOrd, id)
 	m.state.updateStatus(id, StatusLoaded, nil)
 	m.mu.Unlock()
-
-	if err := m.invokeInit(ctx, mod); err != nil {
-		m.mu.Lock()
-		delete(m.loaded, id)
-		m.removeFromOrder(id)
-		m.mu.Unlock()
-		_ = mod.module.Close(ctx)
-		m.state.updateStatus(id, StatusFailed, err)
-		return err
-	}
 	return nil
 }
 
@@ -129,55 +194,128 @@ func (m *activeManager) Unload(ctx context.Context, id string) error {
 	if _, ok := m.state.lookup(id); !ok {
 		return fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
 	}
+	m.loadMu.Lock()
 	m.mu.Lock()
 	mod, ok := m.loaded[id]
+	if ok {
+		delete(m.loaded, id)
+		m.removeFromOrder(id)
+		m.retiring[id] = mod
+	}
 	if !ok {
+		mod = m.retiring[id]
+	}
+	if mod == nil {
 		m.mu.Unlock()
+		m.loadMu.Unlock()
 		return nil
 	}
-	delete(m.loaded, id)
-	m.removeFromOrder(id)
+	drained := mod.retireCalls()
 	m.mu.Unlock()
-	m.state.updateStatus(id, StatusDiscovered, nil)
-	return mod.module.Close(ctx)
+	m.loadMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	err := m.finalizeModule(ctx, mod)
+	m.mu.Lock()
+	if m.retiring[id] == mod {
+		m.state.updateStatus(id, StatusDiscovered, err)
+		delete(m.retiring, id)
+	}
+	m.mu.Unlock()
+	return err
 }
 
 func (m *activeManager) Close(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.loadMu.Lock()
 	m.mu.Lock()
-	if m.closed {
+	if m.closed && len(m.runtimes) == 0 && len(m.retiring) == 0 {
 		m.mu.Unlock()
+		m.loadMu.Unlock()
 		return nil
 	}
 	m.closed = true
-	mods := make([]api.Module, 0, len(m.loaded))
-	for _, mod := range m.loaded {
-		mods = append(mods, mod.module)
+	modsByID := make(map[string]*loadedModule, len(m.loaded)+len(m.retiring))
+	for id, mod := range m.loaded {
+		modsByID[id] = mod
+		m.retiring[id] = mod
+	}
+	for id, mod := range m.retiring {
+		modsByID[id] = mod
 	}
 	m.loaded = make(map[string]*loadedModule)
 	m.loadOrd = nil
-	hostMod := m.hostMod
-	rt := m.runtime
-	m.hostMod = nil
-	m.runtime = nil
+	drained := make(map[string]<-chan struct{}, len(modsByID))
+	for id, mod := range modsByID {
+		drained[id] = mod.retireCalls()
+	}
 	m.mu.Unlock()
+	m.loadMu.Unlock()
 
 	var firstErr error
-	for _, mod := range mods {
-		if err := mod.Close(ctx); err != nil && firstErr == nil {
-			firstErr = err
+	for id, mod := range modsByID {
+		select {
+		case <-drained[id]:
+		case <-ctx.Done():
+			return errors.Join(firstErr, ctx.Err())
+		}
+		if err := m.finalizeModule(ctx, mod); err != nil {
+			firstErr = errors.Join(firstErr, err)
+		}
+		m.mu.Lock()
+		if m.retiring[id] == mod {
+			m.state.updateStatus(id, StatusDiscovered, mod.moduleErr)
+			delete(m.retiring, id)
+		}
+		m.mu.Unlock()
+	}
+	m.mu.Lock()
+	runtimes := m.runtimes
+	m.runtimes = nil
+	m.mu.Unlock()
+	for _, rt := range runtimes {
+		if err := rt.Close(ctx); err != nil {
+			firstErr = errors.Join(firstErr, err)
 		}
 	}
-	if hostMod != nil {
-		if err := hostMod.Close(ctx); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	if rt != nil {
-		if err := rt.Close(ctx); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
+
 	return firstErr
+}
+
+func (m *activeManager) shutdownModule(ctx context.Context, mod *loadedModule) error {
+	if mod == nil || !mod.initialized || mod.fnShutdown == nil {
+		return nil
+	}
+	raw, err := m.dispatch(ctx, mod, Envelope{
+		APIVersion:  SupportedAPIVersion,
+		ExtensionID: mod.info.Manifest.ID,
+		Kind:        KindShutdown,
+	}, mod.fnShutdown, ExportShutdown)
+	if err != nil {
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	response, err := UnmarshalResponse(raw)
+	if err != nil {
+		return newExtensionError(mod.info.Manifest.ID, CodeInternal, "decode shutdown response", err)
+	}
+	if !response.OK {
+		if response.Error != nil {
+			return newExtensionError(mod.info.Manifest.ID, response.Error.Code, response.Error.Message, nil)
+		}
+		return newExtensionError(mod.info.Manifest.ID, CodeInternal, "shutdown returned not ok", nil)
+	}
+	return nil
 }
 
 // CallTool invokes the named tool on the named extension. It loads the
@@ -193,10 +331,14 @@ func (m *activeManager) CallTool(ctx context.Context, id string, req ToolRequest
 	}
 	m.mu.Lock()
 	mod, ok := m.loaded[id]
+	if ok {
+		ok = mod.acquireCall()
+	}
 	m.mu.Unlock()
 	if !ok {
 		return ToolResponse{}, fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
 	}
+	defer mod.releaseCall()
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -268,10 +410,14 @@ func (m *activeManager) CallRuntime(ctx context.Context, id string, req RuntimeR
 	}
 	m.mu.Lock()
 	mod, ok := m.loaded[id]
+	if ok {
+		ok = mod.acquireCall()
+	}
 	m.mu.Unlock()
 	if !ok {
 		return RuntimeResponse{}, fmt.Errorf("%w: %q", ErrExtensionNotFound, id)
 	}
+	defer mod.releaseCall()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = newExtensionError(id, CodeTrap, fmt.Sprintf("guest runtime call panicked: %v", recovered), nil)
@@ -347,6 +493,20 @@ func (m *activeManager) invokeInit(ctx context.Context, mod *loadedModule) (err 
 // dispatch handles the trap-safe call sequence: marshal into guest
 // memory, invoke the export, copy the response out, free guest memory.
 func (m *activeManager) dispatch(ctx context.Context, mod *loadedModule, env Envelope, fn api.Function, fallbackName string) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	callCtx, cancel := context.WithTimeout(ctx, mod.limits.Timeout())
+	defer cancel()
+	select {
+	case mod.execGate <- struct{}{}:
+		defer func() { <-mod.execGate }()
+	case <-callCtx.Done():
+		return nil, callCtx.Err()
+	}
+	if err := callCtx.Err(); err != nil {
+		return nil, err
+	}
 	if fn == nil {
 		fn = mod.module.ExportedFunction(fallbackName)
 	}
@@ -360,10 +520,6 @@ func (m *activeManager) dispatch(ctx context.Context, mod *loadedModule, env Env
 		return nil, newExtensionError(mod.info.Manifest.ID, CodeInputTooLarge,
 			err.Error(), err)
 	}
-
-	timeout := mod.limits.Timeout()
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	scope := newCallScope(mod, m.cfg)
 	callCtx = context.WithValue(callCtx, callContextKey{}, scope)
@@ -476,9 +632,6 @@ func (m *activeManager) instantiate(ctx context.Context, e *entry) (*loadedModul
 	if err != nil {
 		return nil, err
 	}
-	if err := m.ensureHostModule(ctx); err != nil {
-		return nil, err
-	}
 
 	allowed := m.cfg.resolvedAllowed()
 	grants := ResolveCapabilityGrants(e.manifest.Capabilities, allowed)
@@ -504,6 +657,9 @@ func (m *activeManager) instantiate(ctx context.Context, e *entry) (*loadedModul
 		module:     mod,
 		limits:     limits,
 		grants:     grants,
+		execGate:   make(chan struct{}, 1),
+		accepting:  true,
+		drained:    make(chan struct{}),
 		fnInit:     mod.ExportedFunction(ExportInit),
 		fnHandle:   mod.ExportedFunction(ExportHandle),
 		fnShutdown: mod.ExportedFunction(ExportShutdown),
@@ -519,11 +675,10 @@ func (m *activeManager) instantiate(ctx context.Context, e *entry) (*loadedModul
 func (m *activeManager) ensureRuntime(ctx context.Context, memoryPages uint32) (wazero.Runtime, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.runtime != nil {
-		return m.runtime, nil
+	if rt := m.runtimes[memoryPages]; rt != nil {
+		return rt, nil
 	}
-	cfg := wazero.NewRuntimeConfig().
-		WithCloseOnContextDone(true)
+	cfg := wazero.NewRuntimeConfig().WithCloseOnContextDone(true)
 	if memoryPages > 0 {
 		cfg = cfg.WithMemoryLimitPages(memoryPages)
 	}
@@ -532,28 +687,15 @@ func (m *activeManager) ensureRuntime(ctx context.Context, memoryPages uint32) (
 		_ = rt.Close(ctx)
 		return nil, fmt.Errorf("instantiate WASI: %w", err)
 	}
-	m.runtime = rt
-	m.wasiOK = true
+	if _, err := registerHostModule(ctx, rt, m.cfg); err != nil {
+		_ = rt.Close(ctx)
+		return nil, err
+	}
+	if m.runtimes == nil {
+		m.runtimes = make(map[uint32]wazero.Runtime)
+	}
+	m.runtimes[memoryPages] = rt
 	return rt, nil
-}
-
-// ensureHostModule registers the y_host module exactly once. The Manager
-// keeps a single instance so every guest sees a stable namespace.
-func (m *activeManager) ensureHostModule(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.hostMod != nil {
-		return nil
-	}
-	if m.runtime == nil {
-		return errors.New("runtime not ready")
-	}
-	mod, err := registerHostModule(ctx, m.runtime, m.cfg)
-	if err != nil {
-		return err
-	}
-	m.hostMod = mod
-	return nil
 }
 
 func (m *activeManager) removeFromOrder(id string) {

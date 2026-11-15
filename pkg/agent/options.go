@@ -318,3 +318,23 @@ func WithAccounting(accounting *telemetry.Accounting) Option {
 func WithRuntimeHooks(hooks RuntimeHooks) Option {
 	return func(a *Agent) { a.runtimeHooks = append(a.runtimeHooks, hooks) }
 }
+
+// WithRuntimeHookRegistry connects removable runtime hooks to an agent. Hook
+// registrations are read dynamically on each lifecycle dispatch.
+func WithRuntimeHookRegistry(registry *RuntimeHookRegistry) Option {
+	return func(a *Agent) {
+		if registry != nil {
+			a.runtimeHookRegistries = append(a.runtimeHookRegistries, registry)
+		}
+	}
+}
+
+// WithRuntimeViewSource supplies immutable operation snapshots for tools,
+// context sources, component services and removable runtime hooks.
+func WithRuntimeViewSource(source RuntimeViewSource) Option {
+	return func(a *Agent) {
+		if source != nil {
+			a.runtimeViewSource = source
+		}
+	}
+}

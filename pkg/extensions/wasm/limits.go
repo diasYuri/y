@@ -25,10 +25,9 @@ type Limits struct {
 	// MaxHostCalls bounds how many y_host_call invocations a single tool
 	// call may issue.
 	MaxHostCalls uint32
-	// Fuel is the optional WebAssembly fuel ceiling. Zero disables fuel
-	// metering. wazero does not yet expose first-class fuel support, so
-	// the host enforces it by counting host calls/elapsed time. The field
-	// is preserved for future engines.
+	// Fuel reserves a future WebAssembly instruction budget. This engine
+	// rejects nonzero values because it cannot enforce instruction metering.
+	// TimeoutMS and MaxHostCalls remain independent enforced quotas.
 	Fuel uint64
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/diasYuri/y/pkg/agent"
 	"github.com/diasYuri/y/pkg/ai"
+	"github.com/diasYuri/y/pkg/component"
 	"github.com/diasYuri/y/pkg/providers"
 	"github.com/diasYuri/y/pkg/tools"
 )
@@ -31,6 +32,19 @@ func Register(registry *tools.Registry, manager *Manager) error {
 
 // Register adds the task-management tools to a native y tool registry.
 func (m *Manager) Register(registry *tools.Registry) error {
+	return m.register(registry, nil)
+}
+
+// RegisterScoped adds task tools owned by a component scope. The scope retires
+// each registration and drains active calls during rollback or close.
+func (m *Manager) RegisterScoped(registry *tools.Registry, scope *component.Scope) error {
+	if scope == nil {
+		return fmt.Errorf("task tool component scope is nil")
+	}
+	return m.register(registry, scope)
+}
+
+func (m *Manager) register(registry *tools.Registry, scope *component.Scope) error {
 	if m == nil {
 		return ErrManagerNil
 	}
@@ -51,7 +65,19 @@ func (m *Manager) Register(registry *tools.Registry) error {
 		if err != nil {
 			return err
 		}
-		if err := registry.Add(descriptor, build.handler); err != nil {
+		if scope == nil {
+			err = registry.Add(descriptor, build.handler)
+		} else {
+			var registration *tools.ToolRegistration
+			registration, err = registry.RegisterScoped(descriptor, build.handler, scope.Owner(), scope.Generation())
+			if err == nil {
+				err = scope.Track(registration.Close)
+				if err != nil {
+					_ = registration.Close(context.Background())
+				}
+			}
+		}
+		if err != nil {
 			return err
 		}
 	}

@@ -2,6 +2,7 @@ package wasm
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -29,6 +30,21 @@ type Manifest struct {
 	Runtime      RuntimeManifest
 	Capabilities CapabilitySet
 	Tools        []ToolManifest
+	Requirements []ServiceRequirementManifest
+	Provides     []ServiceProvisionManifest
+}
+
+// ServiceRequirementManifest declares a dependency on a versioned host service.
+type ServiceRequirementManifest struct {
+	ServiceID  string
+	ProviderID string
+	Version    string
+}
+
+// ServiceProvisionManifest declares a JSON-mediated service exported by the guest.
+type ServiceProvisionManifest struct {
+	ServiceID string
+	Version   string
 }
 
 // RuntimeManifest carries optional execution limits requested by the
@@ -55,8 +71,10 @@ type CapabilitySet struct {
 
 // ToolManifest describes a tool the extension exports through the host.
 type ToolManifest struct {
-	Name        string
-	Description string
+	Name         string
+	Description  string
+	InputSchema  json.RawMessage
+	OutputSchema json.RawMessage
 }
 
 // ReadManifest loads and validates a manifest from disk.
@@ -136,6 +154,25 @@ func (m Manifest) Validate(path string) error {
 		}
 		seen[tool.Name] = struct{}{}
 	}
+	seenServices := make(map[string]struct{}, len(m.Requirements)+len(m.Provides))
+	for i, requirement := range m.Requirements {
+		if requirement.ServiceID == "" || requirement.ProviderID == "" || requirement.Version == "" {
+			return newManifestError(path, fmt.Sprintf("requires[%d]", i), "service_id, provider_id, and version are required", 0, nil)
+		}
+		if _, exists := seenServices[requirement.ServiceID]; exists {
+			return newManifestError(path, fmt.Sprintf("requires[%d].service_id", i), "duplicate service declaration", 0, nil)
+		}
+		seenServices[requirement.ServiceID] = struct{}{}
+	}
+	for i, provision := range m.Provides {
+		if provision.ServiceID == "" || provision.Version == "" {
+			return newManifestError(path, fmt.Sprintf("provides[%d]", i), "service_id and version are required", 0, nil)
+		}
+		if _, exists := seenServices[provision.ServiceID]; exists {
+			return newManifestError(path, fmt.Sprintf("provides[%d].service_id", i), "duplicate service declaration", 0, nil)
+		}
+		seenServices[provision.ServiceID] = struct{}{}
+	}
 	return nil
 }
 
@@ -157,9 +194,13 @@ func parseManifest(path string, r io.Reader) (Manifest, error) {
 		stateRuntime
 		stateCapabilities
 		stateTool
+		stateRequirement
+		stateProvision
 	)
 	state := stateTop
 	currentTool := -1
+	currentRequirement := -1
+	currentProvision := -1
 
 	for lineNo := 1; scanner.Scan(); lineNo++ {
 		raw := stripTOMLComment(scanner.Text())
@@ -173,13 +214,23 @@ func parseManifest(path string, r io.Reader) (Manifest, error) {
 				return Manifest{}, newManifestError(path, "", "invalid array-table header", lineNo, nil)
 			}
 			name := strings.TrimSpace(line[2 : len(line)-2])
-			if name != "tools" {
+			switch name {
+			case "tools":
+				m.Tools = append(m.Tools, ToolManifest{})
+				currentTool = len(m.Tools) - 1
+				state = stateTool
+			case "requires":
+				m.Requirements = append(m.Requirements, ServiceRequirementManifest{})
+				currentRequirement = len(m.Requirements) - 1
+				state = stateRequirement
+			case "provides":
+				m.Provides = append(m.Provides, ServiceProvisionManifest{})
+				currentProvision = len(m.Provides) - 1
+				state = stateProvision
+			default:
 				return Manifest{}, newManifestError(path, name,
 					fmt.Sprintf("unsupported array table %q", name), lineNo, nil)
 			}
-			m.Tools = append(m.Tools, ToolManifest{})
-			currentTool = len(m.Tools) - 1
-			state = stateTool
 			continue
 		}
 		if strings.HasPrefix(line, "[") {
@@ -230,12 +281,54 @@ func parseManifest(path string, r io.Reader) (Manifest, error) {
 			if err := assignTool(&m.Tools[currentTool], key, value, lineNo, path); err != nil {
 				return Manifest{}, err
 			}
+		case stateRequirement:
+			if err := assignServiceRequirement(&m.Requirements[currentRequirement], key, value, lineNo, path); err != nil {
+				return Manifest{}, err
+			}
+		case stateProvision:
+			if err := assignServiceProvision(&m.Provides[currentProvision], key, value, lineNo, path); err != nil {
+				return Manifest{}, err
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return Manifest{}, &ManifestError{Path: path, Message: "read failed", Cause: err}
 	}
 	return m, nil
+}
+
+func assignServiceRequirement(requirement *ServiceRequirementManifest, key, value string, line int, path string) error {
+	parsed, err := parseString(value)
+	if err != nil {
+		return newManifestError(path, "requires."+key, err.Error(), line, err)
+	}
+	switch key {
+	case "service_id":
+		requirement.ServiceID = parsed
+	case "provider_id":
+		requirement.ProviderID = parsed
+	case "version":
+		requirement.Version = parsed
+	default:
+		return newManifestError(path, "requires."+key, fmt.Sprintf("unknown requirement key %q", key), line, nil)
+	}
+	return nil
+}
+
+func assignServiceProvision(provision *ServiceProvisionManifest, key, value string, line int, path string) error {
+	parsed, err := parseString(value)
+	if err != nil {
+		return newManifestError(path, "provides."+key, err.Error(), line, err)
+	}
+	switch key {
+	case "service_id":
+		provision.ServiceID = parsed
+	case "version":
+		provision.Version = parsed
+	default:
+		return newManifestError(path, "provides."+key, fmt.Sprintf("unknown provision key %q", key), line, nil)
+	}
+	return nil
 }
 
 func assignTopLevel(m *Manifest, key, value string, line int, path string) error {
@@ -354,10 +447,21 @@ func assignTool(t *ToolManifest, key, value string, line int, path string) error
 		}
 		t.Description = s
 	case "input_schema", "output_schema":
-		// Schemas are accepted but ignored at this stage; ABI work attaches
-		// them later. Validate the value type so typos surface here.
-		if _, err := parseString(value); err != nil {
+		schema, err := parseString(value)
+		if err != nil {
 			return newManifestError(path, "tools."+key, err.Error(), line, err)
+		}
+		if !json.Valid([]byte(schema)) {
+			return newManifestError(path, "tools."+key, "must be a valid JSON schema", line, nil)
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(schema), &object); err != nil || object == nil {
+			return newManifestError(path, "tools."+key, "must be a JSON object schema", line, err)
+		}
+		if key == "input_schema" {
+			t.InputSchema = json.RawMessage(schema)
+		} else {
+			t.OutputSchema = json.RawMessage(schema)
 		}
 	default:
 		return newManifestError(path, "tools."+key,
@@ -371,11 +475,11 @@ func parseString(value string) (string, error) {
 	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
 		return "", fmt.Errorf("expected a double-quoted string")
 	}
-	body := value[1 : len(value)-1]
-	if strings.Contains(body, "\\") {
-		return "", fmt.Errorf("escape sequences are not supported")
+	parsed, err := strconv.Unquote(value)
+	if err != nil {
+		return "", fmt.Errorf("expected a valid double-quoted string: %w", err)
 	}
-	return body, nil
+	return parsed, nil
 }
 
 func parseBool(value string) (bool, error) {

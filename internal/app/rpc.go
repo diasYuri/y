@@ -108,34 +108,17 @@ func runRPC(stdout, stderr io.Writer, args []string) int {
 	compiled := feature.NewRegistry()
 	_ = feature.RegisterCompiledFeatures(compiled)
 
-	provider, err := defaultHeadlessProviderFactory(ctx, compiled, opts)
-	if err != nil {
-		fmt.Fprintf(stderr, "y rpc: %v\n", err)
-		return headlessExitCode(err)
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "y rpc: %v\n", err)
 		return exitCodeExecution
 	}
 
-	registry, err := buildHeadlessRegistry(ctx, compiled, cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "y rpc: %v\n", err)
-		return headlessExitCode(err)
+	composition, runtimeCode := prepareHeadlessRuntime(ctx, "rpc", stderr, defaultHeadlessProviderFactory, compiled, opts, cwd)
+	if runtimeCode != 0 {
+		return runtimeCode
 	}
-	runtimeCfg, err := loadRuntimeConfig()
-	if err != nil {
-		fmt.Fprintf(stderr, "y rpc: %v\n", err)
-		return exitCodeConfig
-	}
-	extensionHost, err := buildExtensionHost(ctx, runtimeCfg, opts, provider, cwd, registry)
-	if err != nil {
-		fmt.Fprintf(stderr, "y rpc: %v\n", err)
-		return exitCodeConfig
-	}
-	defer func() { _ = extensionHost.Close(context.Background()) }()
+	defer func() { _ = composition.Close(context.Background()) }()
 
 	addr := addrOverride
 	if addr == "" {
@@ -148,11 +131,14 @@ func runRPC(stdout, stderr io.Writer, args []string) int {
 	serverCfg := rpc.ServerConfig{
 		Addr:         addr,
 		Log:          stderr,
-		Provider:     provider,
-		ToolRegistry: registry,
+		Provider:     composition.Provider,
+		ToolRegistry: composition.Registry,
 		Model:        ai.Model{ID: opts.model},
 		SystemPrompt: opts.systemPrompt,
-		AgentOptions: append([]agent.Option{agent.WithContextIdentity("", cwd, cwd, "", "")}, extensionHost.AgentOptions()...),
+		AgentOptions: []agent.Option{agent.WithContextIdentity("", cwd, cwd, "", "")},
+	}
+	if composition.Host != nil {
+		serverCfg.AgentOptions = append(serverCfg.AgentOptions, composition.Host.AgentOptions()...)
 	}
 	server := rpc.NewServer(serverCfg)
 

@@ -37,9 +37,10 @@ func RuntimeIdentityFromContext(ctx context.Context) (RuntimeIdentity, bool) {
 
 // TurnContext identifies one provider/tool turn in a run.
 type TurnContext struct {
-	RunID     string
-	SessionID string
-	Turn      int
+	RunID         string
+	SessionID     string
+	Turn          int
+	RuntimeViewID string
 }
 
 // SessionEvent identifies lifecycle transitions that do not belong to a
@@ -90,15 +91,26 @@ type RuntimeHooks struct {
 func (a *Agent) hooksSnapshot() []RuntimeHooks {
 	a.mu.Lock()
 	hooks := append([]RuntimeHooks(nil), a.runtimeHooks...)
+	registries := append([]*RuntimeHookRegistry(nil), a.runtimeHookRegistries...)
 	a.mu.Unlock()
+	for _, registry := range registries {
+		hooks = append(hooks, registry.snapshot()...)
+	}
 	return hooks
+}
+
+func (a *Agent) hooksSnapshotFor(ctx context.Context) []RuntimeHooks {
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		return view.Hooks()
+	}
+	return a.hooksSnapshot()
 }
 
 func (a *Agent) notifySession(ctx context.Context, state State) error {
 	a.mu.Lock()
 	event := SessionEvent{RunID: a.runID, SessionID: a.sessionID, State: state}
 	a.mu.Unlock()
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.OnSession != nil {
 			if err := hooks.OnSession(ctx, event); err != nil {
 				return err
@@ -112,7 +124,10 @@ func (a *Agent) applyBeforeTurn(ctx context.Context, turn int) error {
 	a.mu.Lock()
 	value := TurnContext{RunID: a.runID, SessionID: a.sessionID, Turn: turn}
 	a.mu.Unlock()
-	for _, hooks := range a.hooksSnapshot() {
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		value.RuntimeViewID = view.ID()
+	}
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.BeforeTurn != nil {
 			if err := hooks.BeforeTurn(ctx, value); err != nil {
 				return err
@@ -126,7 +141,10 @@ func (a *Agent) applyAfterTurn(ctx context.Context, turn int, result RunResult) 
 	a.mu.Lock()
 	value := TurnContext{RunID: a.runID, SessionID: a.sessionID, Turn: turn}
 	a.mu.Unlock()
-	for _, hooks := range a.hooksSnapshot() {
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		value.RuntimeViewID = view.ID()
+	}
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.AfterTurn != nil {
 			if err := hooks.AfterTurn(ctx, value, result); err != nil {
 				return err
@@ -138,7 +156,7 @@ func (a *Agent) applyAfterTurn(ctx context.Context, turn int, result RunResult) 
 
 func (a *Agent) applyBeforeComplete(ctx context.Context, result RunResult) (CompletionDecision, error) {
 	decision := CompletionAllow
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.BeforeComplete == nil {
 			continue
 		}
@@ -154,7 +172,7 @@ func (a *Agent) applyBeforeComplete(ctx context.Context, result RunResult) (Comp
 }
 
 func (a *Agent) applyAfterModel(ctx context.Context, model ai.Model, hookErr error) error {
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.AfterModel != nil {
 			if err := hooks.AfterModel(ctx, model, hookErr); err != nil {
 				return err
@@ -165,7 +183,7 @@ func (a *Agent) applyAfterModel(ctx context.Context, model ai.Model, hookErr err
 }
 
 func (a *Agent) applyAfterRun(ctx context.Context, result RunResult) {
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.AfterRun != nil {
 			_ = hooks.AfterRun(ctx, result)
 		}

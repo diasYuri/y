@@ -54,7 +54,7 @@ func (a *Agent) compact(ctx context.Context, reason compaction.Reason, force boo
 	a.compacting = true
 	a.mu.Unlock()
 	defer func() { a.mu.Lock(); a.compacting = false; a.mu.Unlock() }()
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.BeforeCompaction != nil {
 			if err := hooks.BeforeCompaction(ctx); err != nil {
 				return false, fmt.Errorf("before compaction hook: %w", err)
@@ -69,7 +69,7 @@ func (a *Agent) compact(ctx context.Context, reason compaction.Reason, force boo
 	if err != nil {
 		span.RecordError(err)
 		a.emit(Event{Kind: EventCompactionCompleted, State: StateStreaming, Err: err})
-		for _, hooks := range a.hooksSnapshot() {
+		for _, hooks := range a.hooksSnapshotFor(ctx) {
 			if hooks.AfterCompaction != nil {
 				hooks.AfterCompaction(ctx, result, err)
 			}
@@ -79,7 +79,7 @@ func (a *Agent) compact(ctx context.Context, reason compaction.Reason, force boo
 	if !result.Applied {
 		span.SetStatus(telemetry.StatusOK, "not_applied")
 		a.emit(Event{Kind: EventCompactionCompleted, State: StateStreaming})
-		for _, hooks := range a.hooksSnapshot() {
+		for _, hooks := range a.hooksSnapshotFor(ctx) {
 			if hooks.AfterCompaction != nil {
 				hooks.AfterCompaction(ctx, result, nil)
 			}
@@ -99,7 +99,7 @@ func (a *Agent) compact(ctx context.Context, reason compaction.Reason, force boo
 	span.SetStatus(telemetry.StatusOK, "")
 	a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(0, model, ""), Compactions: 1, EstimatedContextTokens: result.Metadata.TokensBefore})
 	a.emit(Event{Kind: EventCompactionCompleted, State: StateStreaming, Payload: payload})
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.AfterCompaction != nil {
 			hooks.AfterCompaction(ctx, result, nil)
 		}

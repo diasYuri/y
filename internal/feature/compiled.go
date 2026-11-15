@@ -45,6 +45,14 @@ func RegisterCompiledFeatures(r *Registry) error {
 }
 
 func registerCore(r *Registry) error {
+	for _, id := range []string{
+		"extensions.host", "extensions.memory", "policy.default", "provider.auto",
+		"sessions.filesystem", "telemetry.default", "tools.default", "subagents", "task_manager",
+	} {
+		if err := r.AddComponent(id, "", "Built-in runtime component."); err != nil {
+			return err
+		}
+	}
 	if err := r.AddCommand("chat", "Start a basic stdin/stdout chat loop."); err != nil {
 		return err
 	}

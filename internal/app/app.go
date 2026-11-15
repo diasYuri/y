@@ -14,6 +14,7 @@ import (
 	"github.com/diasYuri/y/internal/config"
 	"github.com/diasYuri/y/internal/diagnostics"
 	"github.com/diasYuri/y/internal/feature"
+	internalruntime "github.com/diasYuri/y/internal/runtime"
 )
 
 // BuildInfo is the build metadata needed during CLI bootstrap.
@@ -202,6 +203,10 @@ func runConfigValidate(stdout, stderr io.Writer, args []string, compiled *featur
 		return 1
 	}
 	if err := validateConfiguredExtensions(cfg); err != nil {
+		fmt.Fprintf(stderr, "y config validate: %v\n", err)
+		return 1
+	}
+	if err := internalruntime.ValidateComposition(cfg, compiled, internalruntime.CompositionOptions{}); err != nil {
 		fmt.Fprintf(stderr, "y config validate: %v\n", err)
 		return 1
 	}

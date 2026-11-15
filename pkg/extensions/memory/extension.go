@@ -22,28 +22,33 @@ import (
 
 // Config controls the native memory extension.
 type Config struct {
-	Enabled          bool
-	Mode             string
-	Profile          string
-	Backend          string
-	Directory        string
-	MaxItems         int
-	MaxContextTokens int64
-	MaxReadBytes     int64
-	AutoExtract      bool
-	DedicatedTools   bool
-	FailOpen         bool
-	QueueSize        int
-	WorkerID         string
-	TenantID         string
-	WorkspaceID      string
-	ProjectID        string
+	Enabled   bool
+	Mode      string
+	Profile   string
+	Backend   string
+	Directory string
+	// PersistenceFailure controls startup behavior for durable backends. Empty
+	// values normalize to PersistenceRequired.
+	PersistenceFailure PersistenceFailurePolicy
+	MaxItems           int
+	MaxContextTokens   int64
+	MaxReadBytes       int64
+	AutoExtract        bool
+	DedicatedTools     bool
+	// FailOpen controls recall reads only; it does not affect readiness checks
+	// or errors from memory writes.
+	FailOpen    bool
+	QueueSize   int
+	WorkerID    string
+	TenantID    string
+	WorkspaceID string
+	ProjectID   string
 }
 
 // DefaultConfig enables local, human-readable memory with conservative
 // limits. Extraction remains in suggest mode until explicitly configured.
 func DefaultConfig() Config {
-	return Config{Enabled: true, Mode: ModeSuggest, Profile: "local", Backend: "filesystem", MaxItems: 5, MaxContextTokens: 1500, MaxReadBytes: 65536, AutoExtract: true, DedicatedTools: true, FailOpen: true, QueueSize: 128}
+	return Config{Enabled: true, Mode: ModeSuggest, Profile: "local", Backend: "filesystem", PersistenceFailure: PersistenceRequired, MaxItems: 5, MaxContextTokens: 1500, MaxReadBytes: 65536, AutoExtract: true, DedicatedTools: true, FailOpen: true, QueueSize: 128}
 }
 
 // ConfigFromSettings adapts the generic extension namespace to this
@@ -65,6 +70,8 @@ func ConfigFromSettings(settings map[string]string, lookup func(string) string) 
 			config.Profile = value
 		case "backend":
 			config.Backend = value
+		case "persistence_failure":
+			config.PersistenceFailure = PersistenceFailurePolicy(value)
 		case "directory":
 			config.Directory = value
 		case "max_items":
@@ -143,6 +150,9 @@ func ValidateConfig(config Config) error {
 	if config.Backend != "" && config.Backend != "filesystem" && config.Backend != "noop" && config.Backend != "memory" && config.Backend != "remote" {
 		return fmt.Errorf("unsupported memory backend %q", config.Backend)
 	}
+	if config.PersistenceFailure != "" && config.PersistenceFailure != PersistenceRequired && config.PersistenceFailure != PersistenceDegraded {
+		return fmt.Errorf("unsupported memory persistence failure policy %q", config.PersistenceFailure)
+	}
 	return nil
 }
 
@@ -168,6 +178,7 @@ type Extension struct {
 	mu            sync.Mutex
 	config        Config
 	store         pmemory.Store
+	persistence   *persistenceMonitor
 	source        *Source
 	worker        *Worker
 	explicit      bool
@@ -178,8 +189,21 @@ type Extension struct {
 	closed        bool
 }
 
-// New constructs a memory extension from the selected profile.
+// New constructs a memory extension from the selected profile. Required
+// persistence is checked with a bounded startup context; callers with a
+// lifecycle context should use NewWithContext.
 func New(opts ...Option) (*Extension, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultReadinessTimeout)
+	defer cancel()
+	return NewWithContext(ctx, opts...)
+}
+
+// NewWithContext constructs a memory extension and checks configured durable
+// storage before starting its worker.
+func NewWithContext(ctx context.Context, opts ...Option) (*Extension, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	value := options{config: DefaultConfig()}
 	for _, opt := range opts {
 		if opt != nil {
@@ -195,6 +219,9 @@ func New(opts ...Option) (*Extension, error) {
 	}
 	if config.Backend == "" {
 		config.Backend = "filesystem"
+	}
+	if config.PersistenceFailure == "" {
+		config.PersistenceFailure = PersistenceRequired
 	}
 	if config.MaxItems <= 0 {
 		config.MaxItems = 5
@@ -224,7 +251,28 @@ func New(opts ...Option) (*Extension, error) {
 			return nil, errors.New("memory backend requires an injected Store")
 		}
 	}
-	ext := &Extension{config: config, store: store, explicitByRun: make(map[string]bool), lastRunByRun: make(map[string]agent.TurnContext)}
+	status := PersistenceStatusNotRequired
+	var readinessErr error
+	if requiresDurablePersistence(config) {
+		readinessErr = checkStoreReadiness(ctx, store)
+		if errors.Is(readinessErr, context.Canceled) || errors.Is(readinessErr, context.DeadlineExceeded) {
+			return nil, readinessErr
+		}
+		if readinessErr != nil && config.PersistenceFailure == PersistenceRequired {
+			return nil, fmt.Errorf("memory persistence is required: %w", readinessErr)
+		}
+		status = PersistenceStatusAvailable
+		if readinessErr != nil {
+			status = PersistenceStatusDegraded
+		}
+	}
+	monitor := &persistenceMonitor{status: status}
+	var unavailable error
+	if readinessErr != nil && isNoopStore(store) {
+		unavailable = readinessErr
+	}
+	store = &observedStore{store: store, monitor: monitor, unavailable: unavailable}
+	ext := &Extension{config: config, store: store, persistence: monitor, explicitByRun: make(map[string]bool), lastRunByRun: make(map[string]agent.TurnContext)}
 	ext.source = NewSource(store, SourceOptions{Name: "memory", MaxItems: config.MaxItems, MaxContextTokens: config.MaxContextTokens, MaxReadBytes: config.MaxReadBytes, FailOpen: config.FailOpen})
 	if config.Enabled && config.AutoExtract {
 		ext.worker = NewWorker(WorkerOptions{Mode: config.Mode, Queue: value.queue, Extractor: value.extractor, Store: store, QueueSize: config.QueueSize, WorkerID: config.WorkerID})

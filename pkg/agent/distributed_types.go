@@ -260,7 +260,9 @@ func (s Snapshot) IsRecoverable() bool {
 	return s.Status == RunRecoverable
 }
 
-// StateStore provides optimistic, versioned state persistence.
+// StateStore provides optimistic, versioned durable state persistence. A
+// component using the store may release its live resources on shutdown, but
+// component cleanup does not delete snapshots owned by this store.
 type StateStore interface {
 	Load(context.Context, string) (Snapshot, error)
 	Save(context.Context, string, uint64, Snapshot) error
@@ -341,16 +343,19 @@ func (e EventEnvelope) Migrate() (EventEnvelope, error) {
 	return e, nil
 }
 
-// EventStore appends and reads ordered event envelopes. Append is atomic for
-// one call and implementations must deduplicate EventID or IdempotencyKey.
+// EventStore appends and reads ordered durable event envelopes. Append is
+// atomic for one call and implementations must deduplicate EventID or
+// IdempotencyKey. Closing a component that uses the store does not retract
+// already appended events.
 type EventStore interface {
 	Append(context.Context, string, []EventEnvelope) error
 	Read(context.Context, string, uint64) ([]EventEnvelope, error)
 }
 
-// TranscriptStore separates the potentially large conversation from the
-// execution checkpoint. It can use different retention or compression from
-// StateStore while preserving the same run identity.
+// TranscriptStore separates the potentially large durable conversation from
+// the execution checkpoint. It can use different retention or compression from
+// StateStore while preserving the same run identity. Component cleanup does
+// not delete stored transcripts.
 type TranscriptStore interface {
 	LoadTranscript(context.Context, string) ([]ai.Message, error)
 	SaveTranscript(context.Context, string, uint64, []ai.Message) error

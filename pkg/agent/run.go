@@ -42,7 +42,7 @@ func (a *Agent) RunWithOptions(ctx context.Context, prompt string, opts RunOptio
 }
 
 // RunMessages appends messages and executes the full agent loop.
-func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunResult, error) {
+func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (result RunResult, runErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -62,6 +62,7 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 	a.eventSequence = 0
 	a.mu.Unlock()
 	spanCtx, runSpan := a.startSpan(ctx, "agent.run", telemetry.Attribute{Key: "run.id", Value: a.runID})
+	result = RunResult{State: StateIdle}
 	a.mu.Lock()
 	pendingApproval := clonePendingApproval(a.pendingApproval)
 	approvalResolution := cloneApprovalResolution(a.approvalResolution)
@@ -78,7 +79,7 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 		a.mu.Unlock()
 		a.emit(Event{Kind: EventAgentSettled, State: state})
 		_ = a.notifySession(context.Background(), state)
-		a.applyAfterRun(WithRuntimeIdentity(context.Background(), identity), a.snapshotResult(RunResult{State: state}, state))
+		a.applyAfterRun(WithRuntimeIdentity(context.Background(), identity), a.snapshotResult(result, state))
 		if state == StateCanceled {
 			a.emit(Event{Kind: EventAbortCompleted, State: state})
 		}
@@ -94,28 +95,6 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 		}
 		runSpan.End()
 	}()
-	if pendingApproval != nil {
-		if pendingApproval.Request.ExpiresAt.After(time.Time{}) && time.Now().UTC().After(pendingApproval.Request.ExpiresAt) {
-			a.setState(StateWaitingApproval)
-			return a.snapshotResult(RunResult{State: StateWaitingApproval, Approval: &pendingApproval.Request}, StateWaitingApproval), ErrApprovalPending
-		}
-		if approvalResolution == nil {
-			a.setState(StateWaitingApproval)
-			return a.snapshotResult(RunResult{State: StateWaitingApproval, Approval: &pendingApproval.Request}, StateWaitingApproval), ErrApprovalPending
-		}
-		if approvalResolution.ApprovalID != "" && pendingApproval.Request.ApprovalID != "" && approvalResolution.ApprovalID != pendingApproval.Request.ApprovalID {
-			return RunResult{State: StateWaitingApproval, Approval: &pendingApproval.Request}, fmt.Errorf("%w: approval ID does not match pending request", ErrApprovalPending)
-		}
-		if approvalResolution.State == "" || approvalResolution.State == policy.ApprovalPending ||
-			(!approvalResolution.ExpiresAt.IsZero() && time.Now().UTC().After(approvalResolution.ExpiresAt)) {
-			a.setState(StateWaitingApproval)
-			return a.snapshotResult(RunResult{State: StateWaitingApproval, Approval: &pendingApproval.Request}, StateWaitingApproval), ErrApprovalPending
-		}
-		a.mu.Lock()
-		a.pendingApproval = nil
-		a.mu.Unlock()
-	}
-
 	runCtx, cancel := context.WithCancel(spanCtx)
 	a.mu.Lock()
 	runCtx = WithRuntimeIdentity(runCtx, RuntimeIdentity{RunID: a.runID, SessionID: a.sessionID})
@@ -130,22 +109,129 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 		cancel()
 	}()
 
+	var currentView *RuntimeView
+	var operationCtx context.Context
+	syncViewInfo := func() {
+		if currentView == nil {
+			return
+		}
+		info := currentView.Info()
+		for i := range result.RuntimeViews {
+			if result.RuntimeViews[i].ID == info.ID {
+				result.RuntimeViews[i] = info
+				return
+			}
+		}
+	}
+	acquireView := func() error {
+		view, err := a.acquireRuntimeView(runCtx)
+		if err != nil {
+			return err
+		}
+		currentView = view
+		operationCtx = withRuntimeView(runCtx, view)
+		info := view.Info()
+		runSpan.SetAttributes(telemetry.Attribute{Key: "runtime.view.id", Value: info.ID})
+		found := false
+		for _, prior := range result.RuntimeViews {
+			if prior.ID == info.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result.RuntimeViews = append(result.RuntimeViews, info)
+		}
+		a.mu.Lock()
+		a.activeRuntimeView = info
+		a.mu.Unlock()
+		return nil
+	}
+	closeView := func() error {
+		if currentView == nil {
+			return nil
+		}
+		view := currentView
+		syncViewInfo()
+		currentView = nil
+		operationCtx = runCtx
+		a.mu.Lock()
+		if a.activeRuntimeView.ID == view.ID() {
+			a.activeRuntimeView = RuntimeViewInfo{}
+		}
+		a.mu.Unlock()
+		return view.Close()
+	}
+	rotateView := func() error {
+		if err := closeView(); err != nil {
+			return err
+		}
+		return acquireView()
+	}
+	defer func() {
+		if err := closeView(); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("close runtime view: %w", err))
+			a.setState(StateFailed)
+			result = a.snapshotResult(result, StateFailed)
+		}
+	}()
+	if err := acquireView(); err != nil {
+		a.setState(StateFailed)
+		return a.snapshotResult(result, StateFailed), err
+	}
+
+	if pendingApproval != nil {
+		if currentView.bindsPendingApprovals() && pendingApproval.RuntimeViewID != currentView.ID() {
+			stale := pendingApproval
+			staleApprovalErr := errors.New("runtime view changed while tool approval was pending; the model must issue a fresh tool call")
+			message := toolResultMessage(stale.ToolCall, tools.ToolResponse{}, staleApprovalErr)
+			a.appendTranscript(message)
+			if message.ToolResult != nil {
+				a.emit(Event{Kind: EventToolCompleted, Turn: stale.Turn, ToolCall: stale.ToolCall, ToolResult: *message.ToolResult, Err: staleApprovalErr})
+			}
+			a.mu.Lock()
+			a.pendingApproval = nil
+			a.approvalResolution = nil
+			a.mu.Unlock()
+			approvalResolution = nil
+			pendingApproval = nil
+		} else {
+			if pendingApproval.Request.ExpiresAt.After(time.Time{}) && time.Now().UTC().After(pendingApproval.Request.ExpiresAt) {
+				a.setState(StateWaitingApproval)
+				return a.snapshotResult(RunResult{Approval: &pendingApproval.Request, RuntimeViews: result.RuntimeViews}, StateWaitingApproval), ErrApprovalPending
+			}
+			if approvalResolution == nil {
+				a.setState(StateWaitingApproval)
+				return a.snapshotResult(RunResult{Approval: &pendingApproval.Request, RuntimeViews: result.RuntimeViews}, StateWaitingApproval), ErrApprovalPending
+			}
+			if approvalResolution.ApprovalID != "" && pendingApproval.Request.ApprovalID != "" && approvalResolution.ApprovalID != pendingApproval.Request.ApprovalID {
+				return a.snapshotResult(RunResult{Approval: &pendingApproval.Request, RuntimeViews: result.RuntimeViews}, StateWaitingApproval), fmt.Errorf("%w: approval ID does not match pending request", ErrApprovalPending)
+			}
+			if approvalResolution.State == "" || approvalResolution.State == policy.ApprovalPending ||
+				(!approvalResolution.ExpiresAt.IsZero() && time.Now().UTC().After(approvalResolution.ExpiresAt)) {
+				a.setState(StateWaitingApproval)
+				return a.snapshotResult(RunResult{Approval: &pendingApproval.Request, RuntimeViews: result.RuntimeViews}, StateWaitingApproval), ErrApprovalPending
+			}
+			a.mu.Lock()
+			a.pendingApproval = nil
+			a.mu.Unlock()
+		}
+	}
+
 	if pendingApproval == nil {
 		for i := range messages {
-			for _, hooks := range a.hooksSnapshot() {
+			for _, hooks := range a.hooksSnapshotFor(operationCtx) {
 				if hooks.BeforeMessage != nil {
-					if err := hooks.BeforeMessage(runCtx, &messages[i]); err != nil {
+					if err := hooks.BeforeMessage(operationCtx, &messages[i]); err != nil {
 						a.setState(StateFailed)
-						return a.snapshotResult(RunResult{State: StateFailed}, StateFailed), err
+						return a.snapshotResult(result, StateFailed), err
 					}
 				}
 			}
 		}
 		a.appendTranscripts(messages)
 	}
-	result := RunResult{State: StateIdle}
-
-	model, err := a.resolveModel(runCtx)
+	model, err := a.resolveModel(operationCtx)
 	if err != nil {
 		finalState := finalStateForError(runCtx, err)
 		a.setState(finalState)
@@ -171,11 +257,14 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 			registry := a.registry
 			workspaceRoot := a.workspaceRoot
 			a.mu.Unlock()
-			message, err := a.executeToolCall(runCtx, registry, workspaceRoot, pendingApproval.ToolCall, pendingApproval.Turn)
+			if currentView.Tools() != nil {
+				registry = currentView.Tools()
+			}
+			message, err := a.executeToolCall(operationCtx, registry, workspaceRoot, pendingApproval.ToolCall, pendingApproval.Turn)
 			if err != nil {
 				var approvalErr *tools.ApprovalError
 				if errors.As(err, &approvalErr) {
-					a.markApprovalPending(err, pendingApproval.ToolCall, pendingApproval.Turn)
+					a.markApprovalPending(operationCtx, err, pendingApproval.ToolCall, pendingApproval.Turn)
 					a.setState(StateWaitingApproval)
 					result.State = StateWaitingApproval
 					result.Approval = &approvalErr.Request
@@ -190,20 +279,29 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 			a.emit(Event{Kind: EventTurnCompleted, Turn: pendingApproval.Turn, State: StateExecutingTools, ToolCall: pendingApproval.ToolCall})
 			a.emit(Event{Kind: EventTurnEnded, Turn: pendingApproval.Turn, State: StateExecutingTools, ToolCall: pendingApproval.ToolCall})
 			pendingApproval = nil
+			if err := rotateView(); err != nil {
+				a.setState(StateFailed)
+				return a.snapshotResult(result, StateFailed), err
+			}
 			continue
 		}
 
 		a.injectSteering()
-		if err := a.applyBeforeTurn(runCtx, turns+1); err != nil {
+		if err := a.applyBeforeTurn(operationCtx, turns+1); err != nil {
 			a.setState(StateFailed)
 			return a.snapshotResult(result, StateFailed), err
 		}
 		a.emit(Event{Kind: EventMessageStarted, State: StateRequestingModel, Turn: turns + 1})
 		a.emit(Event{Kind: EventTurnStarted, Turn: turns + 1, State: StateRequestingModel})
 
-		assistant, usage, stopReason, err := a.requestAssistantWithRetry(runCtx, model, turns+1)
+		assistant, usage, stopReason, err := a.requestAssistantWithRetry(operationCtx, model, turns+1)
+		syncViewInfo()
 		if err != nil {
 			if errors.Is(err, errBeforeRequestSwallowed) {
+				if rotateErr := rotateView(); rotateErr != nil {
+					a.setState(StateFailed)
+					return a.snapshotResult(result, StateFailed), rotateErr
+				}
 				continue
 			}
 			finalState := finalStateForError(runCtx, err)
@@ -228,32 +326,40 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 		result.StopReason = stopReason
 		assistant.ToolCalls = a.ensureToolCallIDs(assistant.ToolCalls, turns)
 		a.appendTranscript(assistant)
-		a.maybeCompact(runCtx)
+		a.maybeCompact(operationCtx)
 
 		if len(assistant.ToolCalls) == 0 {
 			a.emit(Event{Kind: EventTurnCompleted, Turn: turns, State: StateStreaming, Message: assistant, Usage: usage})
 			a.emit(Event{Kind: EventTurnEnded, Turn: turns, State: StateStreaming, Message: assistant, Usage: usage})
-			if err := a.applyAfterTurn(runCtx, turns, result); err != nil {
+			if err := a.applyAfterTurn(operationCtx, turns, result); err != nil {
 				a.setState(StateFailed)
 				return a.snapshotResult(result, StateFailed), err
 			}
 			result.StopReason = ai.StopReasonStop
 			if a.injectPendingSteering() {
+				if err := rotateView(); err != nil {
+					a.setState(StateFailed)
+					return a.snapshotResult(result, StateFailed), err
+				}
 				continue
 			}
-			decision, err := a.applyBeforeComplete(runCtx, result)
+			decision, err := a.applyBeforeComplete(operationCtx, result)
 			if err != nil {
 				a.setState(StateFailed)
 				return a.snapshotResult(result, StateFailed), err
 			}
 			if decision == CompletionContinue {
+				if err := rotateView(); err != nil {
+					a.setState(StateFailed)
+					return a.snapshotResult(result, StateFailed), err
+				}
 				continue
 			}
 			break
 		}
 
 		a.setState(StateExecutingTools)
-		toolResults, err := a.executeToolCalls(runCtx, assistant.ToolCalls, turns)
+		toolResults, err := a.executeToolCalls(operationCtx, assistant.ToolCalls, turns)
 		if err != nil {
 			var approvalErr *tools.ApprovalError
 			if errors.As(err, &approvalErr) {
@@ -280,7 +386,11 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (RunRes
 		// replay an assistant call without a way to reconcile its side effect.
 		a.emit(Event{Kind: EventTurnCompleted, Turn: turns, State: StateExecutingTools, Message: assistant, Usage: usage})
 		a.emit(Event{Kind: EventTurnEnded, Turn: turns, State: StateExecutingTools, Message: assistant, Usage: usage})
-		if err := a.applyAfterTurn(runCtx, turns, result); err != nil {
+		if err := a.applyAfterTurn(operationCtx, turns, result); err != nil {
+			a.setState(StateFailed)
+			return a.snapshotResult(result, StateFailed), err
+		}
+		if err := rotateView(); err != nil {
 			a.setState(StateFailed)
 			return a.snapshotResult(result, StateFailed), err
 		}
@@ -298,7 +408,7 @@ func (a *Agent) resolveModel(ctx context.Context) (ai.Model, error) {
 	if a.model.ID != "" {
 		model := a.model
 		a.mu.Unlock()
-		for _, hooks := range a.hooksSnapshot() {
+		for _, hooks := range a.hooksSnapshotFor(ctx) {
 			if hooks.BeforeModel != nil {
 				if err := hooks.BeforeModel(ctx, &model); err != nil {
 					return ai.Model{}, err
@@ -327,7 +437,7 @@ func (a *Agent) resolveModel(ctx context.Context) (ai.Model, error) {
 	}
 
 	model := models[0]
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.BeforeModel != nil {
 			if err := hooks.BeforeModel(ctx, &model); err != nil {
 				return ai.Model{}, err
@@ -386,6 +496,15 @@ func (a *Agent) snapshotResult(result RunResult, state State) RunResult {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	result.Messages = cloneMessages(a.transcript)
+	if a.activeRuntimeView.ID != "" {
+		for i := range result.RuntimeViews {
+			if result.RuntimeViews[i].ID == a.activeRuntimeView.ID {
+				result.RuntimeViews[i] = cloneRuntimeViewInfo(a.activeRuntimeView)
+				break
+			}
+		}
+	}
+	result.RuntimeViews = cloneRuntimeViewInfos(result.RuntimeViews)
 	result.State = state
 	result.Model = sanitizeModel(a.model)
 	return result

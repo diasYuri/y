@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -123,7 +124,7 @@ func TestManager_RestartsCrashedServerAndRequestCancellation(t *testing.T) {
 	slowCtx, slowCancel := context.WithTimeout(ctx, 10*time.Millisecond)
 	_, err = client.Request(slowCtx, "slow", nil)
 	slowCancel()
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("slow request error = %v, want deadline exceeded", err)
 	}
 	key := serverKey(root, "go")

@@ -54,7 +54,7 @@ func (a *Agent) invokeOnError(ctx context.Context, phase ErrorPhase, err error) 
 	if phase == ErrorPhaseRequest {
 		a.recordAccounting(telemetry.Measurement{Dimensions: a.accountingDimensions(0, model, ""), ProviderErrors: 1})
 	}
-	for _, runtimeHook := range a.hooksSnapshot() {
+	for _, runtimeHook := range a.hooksSnapshotFor(ctx) {
 		if runtimeHook.OnError == nil {
 			continue
 		}

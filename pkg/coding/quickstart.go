@@ -15,7 +15,6 @@ import (
 	"github.com/diasYuri/y/pkg/providers/auth"
 	"github.com/diasYuri/y/pkg/providers/google"
 	"github.com/diasYuri/y/pkg/providers/openai"
-	"github.com/diasYuri/y/pkg/providers/openai_compatible"
 	"github.com/diasYuri/y/pkg/tools"
 	"github.com/diasYuri/y/pkg/tools/code_search"
 	"github.com/diasYuri/y/pkg/tools/filesystem"
@@ -154,11 +153,11 @@ func newQuickstartProvider(cfg AgentConfig) (providers.Provider, ai.ProviderID, 
 		if cfg.BaseURL == "" {
 			return nil, "", errors.New("coding: BaseURL is required for the openai-compatible provider")
 		}
-		cOpts := []openai_compatible.Option{openai_compatible.WithBaseURL(cfg.BaseURL)}
+		cOpts := []openai.Option{}
 		if cfg.APIKey != "" {
-			cOpts = append(cOpts, openai_compatible.WithAPIKey(cfg.APIKey))
+			cOpts = append(cOpts, openai.WithAPIKey(cfg.APIKey))
 		}
-		return openai_compatible.New(cOpts...), providerID, nil
+		return openai.NewCompatible(cfg.BaseURL, cOpts...), providerID, nil
 	case "":
 		return nil, "", fmt.Errorf("coding: ProviderID is required (one of %s)", strings.Join(SupportedProviders(), ", "))
 	}

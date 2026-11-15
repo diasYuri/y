@@ -113,14 +113,11 @@ func TestValidateRejectsUnknownConfigKey(t *testing.T) {
 
 func TestGenerateDefault(t *testing.T) {
 	got := GenerateDefault()
-	if !strings.Contains(got, "[features]") {
-		t.Fatal("missing [features] section")
+	if !strings.Contains(got, "[components.provider]") {
+		t.Fatal("missing default provider component")
 	}
-	if !strings.Contains(got, "[providers]") {
-		t.Fatal("missing [providers] section")
-	}
-	if !strings.Contains(got, "[tools]") {
-		t.Fatal("missing [tools] section")
+	if !strings.Contains(got, "[bindings]") {
+		t.Fatal("missing explicit service bindings")
 	}
 	if !strings.Contains(got, "[limits]") {
 		t.Fatal("missing [limits] section")

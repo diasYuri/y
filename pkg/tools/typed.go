@@ -102,7 +102,10 @@ func SchemaFor(typ reflect.Type) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	object := schema.(map[string]any)
+	object, ok := schema.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("schema: root type did not produce an object")
+	}
 	object["additionalProperties"] = false
 	return json.Marshal(object)
 }
@@ -115,8 +118,7 @@ func schemaForType(typ reflect.Type, depth int) (any, error) {
 		typ = typ.Elem()
 	}
 
-	switch typ {
-	case reflect.TypeOf(json.RawMessage{}):
+	if typ == reflect.TypeOf(json.RawMessage{}) {
 		return map[string]any{}, nil
 	}
 

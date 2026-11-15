@@ -48,7 +48,6 @@ func TestRegistryClosesOwnedResourcesInReverseOrder(t *testing.T) {
 	reg := NewRegistry()
 	var order []string
 	for _, name := range []string{"first", "second", "third"} {
-		name := name
 		if err := reg.AddCloser(func(context.Context) error {
 			order = append(order, name)
 			return nil

@@ -100,13 +100,23 @@ type Job struct {
 }
 
 // Store is the source-of-truth boundary for memory. Implementations may be
-// local, remote, durable, or intentionally ephemeral.
+// local, remote, durable, or intentionally ephemeral. Records belong to the
+// store's retention contract and are not removed when a component using the
+// store is closed; Forget is an explicit domain operation.
 type Store interface {
 	Search(context.Context, Query) ([]Memory, error)
 	Read(context.Context, string) (Memory, error)
 	Save(context.Context, Memory) error
 	Forget(context.Context, string) error
 	Version(context.Context, ycontext.Request) (string, error)
+}
+
+// ReadinessChecker is an optional Store capability for components that must
+// verify persistence before activation. Store remains the stable data contract;
+// adapters without this capability can use Version as a read-only readiness
+// check.
+type ReadinessChecker interface {
+	CheckReadiness(context.Context) error
 }
 
 // UsageTracker is an optional store capability used by context sources to
@@ -133,13 +143,14 @@ type LeaseManager interface {
 }
 
 var (
-	ErrNotFound         = errors.New("memory not found")
-	ErrAlreadyForgotten = errors.New("memory already forgotten")
-	ErrQueueFull        = errors.New("memory job queue is full")
-	ErrNoJob            = errors.New("no memory job available")
-	ErrLeaseConflict    = errors.New("memory lease conflict")
-	ErrSensitiveContent = errors.New("memory contains sensitive content")
-	ErrInvalidMemory    = errors.New("invalid memory")
+	ErrNotFound               = errors.New("memory not found")
+	ErrPersistenceUnavailable = errors.New("memory persistence is unavailable")
+	ErrAlreadyForgotten       = errors.New("memory already forgotten")
+	ErrQueueFull              = errors.New("memory job queue is full")
+	ErrNoJob                  = errors.New("no memory job available")
+	ErrLeaseConflict          = errors.New("memory lease conflict")
+	ErrSensitiveContent       = errors.New("memory contains sensitive content")
+	ErrInvalidMemory          = errors.New("invalid memory")
 )
 
 // Valid reports whether k is a supported memory kind.

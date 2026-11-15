@@ -7,8 +7,9 @@ import (
 	pmemory "github.com/diasYuri/y/pkg/memory"
 )
 
-// NoopStore implements stateless memory. It never touches disk and treats
-// writes as successful so callers do not need a special execution path.
+// NoopStore implements intentionally ephemeral memory. It never touches disk
+// and treats writes as successful so callers do not need a special execution
+// path. Its readiness check prevents it from satisfying required persistence.
 type NoopStore struct{}
 
 func (NoopStore) Search(ctx context.Context, _ pmemory.Query) ([]pmemory.Memory, error) {
@@ -32,6 +33,14 @@ func (NoopStore) Version(ctx context.Context, _ ycontext.Request) (string, error
 		return "", err
 	}
 	return "noop", nil
+}
+
+// CheckReadiness reports that this store intentionally does not persist data.
+func (NoopStore) CheckReadiness(ctx context.Context) error {
+	if err := ctxErr(ctx); err != nil {
+		return err
+	}
+	return pmemory.ErrPersistenceUnavailable
 }
 
 func ctxErr(ctx context.Context) error {

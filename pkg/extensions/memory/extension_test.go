@@ -176,8 +176,14 @@ func TestExtensionInstallsThroughGenericHost(t *testing.T) {
 	if got := len(host.Registry.List()); got != 5 {
 		t.Fatalf("registered tools = %d", got)
 	}
-	if got := len(host.AgentOptions()); got != 2 {
-		t.Fatalf("agent options = %d, want resolver and hooks", got)
+	if got := len(host.AgentOptions()); got != 1 {
+		t.Fatalf("agent options = %d, want runtime view source", got)
+	}
+	if err := host.Uninstall(context.Background(), ext.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(host.Registry.List()); got != 0 {
+		t.Fatalf("registered tools after uninstall = %d, want zero", got)
 	}
 	if err := host.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -185,7 +191,7 @@ func TestExtensionInstallsThroughGenericHost(t *testing.T) {
 }
 
 func TestExplicitConsentIsIsolatedByRun(t *testing.T) {
-	ext, err := New(WithConfig(Config{Enabled: true, AutoExtract: false}))
+	ext, err := New(WithConfig(Config{Enabled: true, Profile: "stateless", AutoExtract: false}))
 	if err != nil {
 		t.Fatal(err)
 	}

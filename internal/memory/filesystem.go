@@ -79,6 +79,20 @@ func (s *FilesystemStore) Root() string {
 	return s.root
 }
 
+// CheckReadiness verifies that the index can be read without changing stored
+// memories. Components using required persistence call this before activation.
+func (s *FilesystemStore) CheckReadiness(ctx context.Context) error {
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
+	_, unlock, err := s.lockedIndex(false)
+	if err != nil {
+		return err
+	}
+	unlock()
+	return nil
+}
+
 func (s *FilesystemStore) Search(ctx context.Context, query pmemory.Query) ([]pmemory.Memory, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err

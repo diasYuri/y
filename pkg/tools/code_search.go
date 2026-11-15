@@ -776,14 +776,14 @@ func (t *codeSearchTool) findFiles(ctx context.Context, req ToolRequest) (ToolRe
 	ignores := gitignore.NewWalkIgnore()
 	err = filepath.WalkDir(path.Absolute, func(candidate string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return nil
+			return walkErr
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		relFromRoot, relErr := filepath.Rel(path.WorkspaceRoot, candidate)
 		if relErr != nil {
-			return nil
+			return relErr
 		}
 		if entry.IsDir() {
 			if entry.Name() == ".git" {

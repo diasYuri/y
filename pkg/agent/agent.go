@@ -79,25 +79,30 @@ type Agent struct {
 	maxRetries    int
 	maxRetryDelay time.Duration
 
-	recoverableErr     error
-	pendingApproval    *PendingApproval
-	approvalResolution *policy.ApprovalResolution
-	logger             Logger
-	usageObserver      UsageObserver
-	tracer             telemetry.Tracer
-	accounting         *telemetry.Accounting
-	runtimeHooks       []RuntimeHooks
+	recoverableErr        error
+	pendingApproval       *PendingApproval
+	approvalResolution    *policy.ApprovalResolution
+	logger                Logger
+	usageObserver         UsageObserver
+	tracer                telemetry.Tracer
+	accounting            *telemetry.Accounting
+	runtimeHooks          []RuntimeHooks
+	runtimeHookRegistries []*RuntimeHookRegistry
+	runtimeViewSource     RuntimeViewSource
+	runtimeViewInstanceID string
+	activeRuntimeView     RuntimeViewInfo
 }
 
 // New creates a new agent with the supplied provider and tool registry.
 func New(provider Provider, registry ToolRegistry, opts ...Option) *Agent {
 	a := &Agent{
-		provider: provider,
-		registry: registry,
-		maxTurns: defaultMaxTurns,
-		toolMode: ToolExecutionParallel,
-		state:    StateIdle,
-		sinks:    make(map[uint64]EventSink),
+		provider:              provider,
+		registry:              registry,
+		maxTurns:              defaultMaxTurns,
+		toolMode:              ToolExecutionParallel,
+		state:                 StateIdle,
+		sinks:                 make(map[uint64]EventSink),
+		runtimeViewInstanceID: newID(),
 	}
 	for _, opt := range opts {
 		if opt != nil {

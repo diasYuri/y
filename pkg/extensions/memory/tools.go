@@ -6,7 +6,9 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/diasYuri/y/pkg/component"
 	ycontext "github.com/diasYuri/y/pkg/context"
+	runtimeextensions "github.com/diasYuri/y/pkg/extensions"
 	pmemory "github.com/diasYuri/y/pkg/memory"
 	"github.com/diasYuri/y/pkg/tools"
 )
@@ -40,22 +42,53 @@ type forgetArgs struct {
 	Explicit bool   `json:"explicit,omitempty"`
 }
 
+type memoryToolRegistration struct {
+	desc    tools.ToolDescriptor
+	handler tools.ToolHandler
+}
+
 func registerTools(reg *tools.Registry, ext *Extension) error {
-	for _, item := range []struct {
-		desc    tools.ToolDescriptor
-		handler tools.ToolHandler
-	}{
-		{tools.ToolDescriptor{Name: "memory.search", Description: "Search historical memory relevant to the current request.", InputSchema: schema(`{"type":"object","properties":{"query":{"type":"string"},"scope":{"type":"string"},"max_items":{"type":"integer"},"max_bytes":{"type":"integer"}}}`), Capabilities: []tools.Capability{capabilityMemoryRead}}, toolHandlerFunc(ext.search)},
-		{tools.ToolDescriptor{Name: "memory.read", Description: "Read one historical memory item by ID.", InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`), Capabilities: []tools.Capability{capabilityMemoryRead}}, toolHandlerFunc(ext.read)},
-		{tools.ToolDescriptor{Name: "memory.list", Description: "List active historical memory items.", InputSchema: schema(`{"type":"object","properties":{"scope":{"type":"string"},"max_items":{"type":"integer"}}}`), Capabilities: []tools.Capability{capabilityMemoryRead}}, toolHandlerFunc(ext.list)},
-		{tools.ToolDescriptor{Name: "memory.save", Description: "Save a memory only after the user explicitly requests it.", InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string"},"type":{"type":"string"},"scope":{"type":"string"},"summary":{"type":"string"},"content":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"confidence":{"type":"number"},"explicit":{"type":"boolean"}},"required":["type","scope","summary","content"]}`), Capabilities: []tools.Capability{capabilityMemoryWrite}}, toolHandlerFunc(ext.save)},
-		{tools.ToolDescriptor{Name: "memory.forget", Description: "Forget one memory item and invalidate its recall.", InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string"},"explicit":{"type":"boolean"}},"required":["id"]}`), Capabilities: []tools.Capability{capabilityMemoryWrite}}, toolHandlerFunc(ext.forget)},
-	} {
+	for _, item := range memoryTools(ext) {
 		if err := reg.Add(item.desc, item.handler); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func registerToolsScoped(host *runtimeextensions.Host, scope *component.Scope, ext *Extension) error {
+	for _, item := range memoryTools(ext) {
+		if _, err := host.RegisterTool(scope, item.desc, item.handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func memoryTools(ext *Extension) []memoryToolRegistration {
+	return []memoryToolRegistration{
+		{tools.ToolDescriptor{Name: "memory.search", Description: "Search historical memory relevant to the current request.", InputSchema: schema(`{"type":"object","properties":{"query":{"type":"string"},"scope":{"type":"string"},"max_items":{"type":"integer"},"max_bytes":{"type":"integer"}}}`), Capabilities: []tools.Capability{capabilityMemoryRead}}, toolHandlerFunc(ext.search)},
+		{tools.ToolDescriptor{Name: "memory.read", Description: "Read one historical memory item by ID.", InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`), Capabilities: []tools.Capability{capabilityMemoryRead}}, toolHandlerFunc(ext.read)},
+		{tools.ToolDescriptor{Name: "memory.list", Description: "List active historical memory items.", InputSchema: schema(`{"type":"object","properties":{"scope":{"type":"string"},"max_items":{"type":"integer"}}}`), Capabilities: []tools.Capability{capabilityMemoryRead}}, toolHandlerFunc(ext.list)},
+		{tools.ToolDescriptor{Name: "memory.save", Description: "Save a memory only after the user explicitly requests it.", InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string"},"type":{"type":"string"},"scope":{"type":"string"},"summary":{"type":"string"},"content":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"confidence":{"type":"number"},"explicit":{"type":"boolean"}},"required":["type","scope","summary","content"]}`), Capabilities: []tools.Capability{capabilityMemoryWrite}}, toolHandlerFunc(ext.save)},
+		{tools.ToolDescriptor{Name: "memory.forget", Description: "Forget one memory item and invalidate its recall.", InputSchema: schema(`{"type":"object","properties":{"id":{"type":"string"},"explicit":{"type":"boolean"}},"required":["id"]}`), Capabilities: []tools.Capability{capabilityMemoryWrite}}, toolHandlerFunc(ext.forget)},
+	}
+}
+
+func (e *Extension) InstallScoped(_ context.Context, host *runtimeextensions.Host, scope *component.Scope) error {
+	if e == nil || host == nil || scope == nil {
+		return errors.New("memory extension, host, and component scope are required")
+	}
+	if !e.config.Enabled {
+		return nil
+	}
+	if _, err := host.RegisterSource(scope, e.Source()); err != nil {
+		return err
+	}
+	if _, err := host.RegisterHooks(scope, e.Hooks()); err != nil {
+		return err
+	}
+	return registerToolsScoped(host, scope, e)
 }
 
 type toolHandlerFunc func(context.Context, tools.ToolRequest) (tools.ToolResponse, error)

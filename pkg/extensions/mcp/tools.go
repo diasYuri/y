@@ -10,6 +10,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/diasYuri/y/pkg/component"
+	runtimeextensions "github.com/diasYuri/y/pkg/extensions"
 	"github.com/diasYuri/y/pkg/tools"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -22,10 +24,56 @@ type toolRegistration struct {
 }
 
 func registerTools(registry *tools.Registry, servers []*serverSession) error {
+	registrations := toolRegistrationsFor(servers)
+	if err := validateToolRegistrations(registry, registrations); err != nil {
+		return err
+	}
+	for _, registration := range registrations {
+		if err := registry.Add(registration.descriptor, registration.handler); err != nil {
+			return fmt.Errorf("mcp: register tool %q: %w", registration.descriptor.Name, err)
+		}
+	}
+	return nil
+}
+
+func registerToolsScoped(host *runtimeextensions.Host, scope *component.Scope, servers []*serverSession) error {
+	if host == nil || host.Registry == nil || scope == nil {
+		return errors.New("mcp: host, registry, and component scope are required")
+	}
+	registrations := toolRegistrationsFor(servers)
+	if err := validateToolRegistrations(host.Registry, registrations); err != nil {
+		return err
+	}
+	for _, registration := range registrations {
+		if _, err := host.RegisterTool(scope, registration.descriptor, registration.handler); err != nil {
+			return fmt.Errorf("mcp: register tool %q: %w", registration.descriptor.Name, err)
+		}
+	}
+	return nil
+}
+
+func validateToolRegistrations(registry *tools.Registry, registrations []toolRegistration) error {
+	if registry == nil {
+		return errors.New("mcp: registry is required")
+	}
+	seen := make(map[string]struct{}, len(registrations))
+	for _, registration := range registrations {
+		name := registration.descriptor.Name
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("mcp: multiple server tools map to %q", name)
+		}
+		seen[name] = struct{}{}
+		if _, _, exists := registry.Get(name); exists {
+			return fmt.Errorf("mcp: tool %q is already registered", name)
+		}
+	}
+	return nil
+}
+
+func toolRegistrationsFor(servers []*serverSession) []toolRegistration {
 	registrations := make([]toolRegistration, 0)
 	for _, server := range servers {
 		for _, remote := range server.tools {
-			server, remote := server, remote
 			registrations = append(registrations, toolRegistration{
 				descriptor: remote.descriptor,
 				handler: tools.ToolHandlerFunc(func(ctx context.Context, req tools.ToolRequest) (tools.ToolResponse, error) {
@@ -87,23 +135,7 @@ func registerTools(registry *tools.Registry, servers []*serverSession) error {
 		)
 	}
 
-	seen := make(map[string]struct{}, len(registrations))
-	for _, registration := range registrations {
-		name := registration.descriptor.Name
-		if _, exists := seen[name]; exists {
-			return fmt.Errorf("mcp: multiple server tools map to %q", name)
-		}
-		seen[name] = struct{}{}
-		if _, _, exists := registry.Get(name); exists {
-			return fmt.Errorf("mcp: tool %q is already registered", name)
-		}
-	}
-	for _, registration := range registrations {
-		if err := registry.Add(registration.descriptor, registration.handler); err != nil {
-			return fmt.Errorf("mcp: register tool %q: %w", registration.descriptor.Name, err)
-		}
-	}
-	return nil
+	return registrations
 }
 
 func callRemoteTool(ctx context.Context, server *serverSession, name string, raw json.RawMessage) (tools.ToolResponse, error) {

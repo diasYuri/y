@@ -239,14 +239,18 @@ func TestRunConfigValidateRejectsUncompiledFeature(t *testing.T) {
 		t.Skip("all known runtime capabilities are compiled in this build")
 	}
 
-	section := string(missing.Kind) + "s"
-	if missing.Kind == feature.KindFeature {
-		section = "features"
-	}
-
 	dir := t.TempDir()
 	path := filepath.Join(dir, "y.toml")
-	contents := "[" + section + "]\n" + missing.ID + " = true\n"
+	contents := ""
+	if missing.Kind == feature.KindComponent {
+		contents = "[components.missing]\ntype = \"" + missing.ID + "\"\nenabled = true\n"
+	} else {
+		section := string(missing.Kind) + "s"
+		if missing.Kind == feature.KindFeature {
+			section = "features"
+		}
+		contents = "[" + section + "]\n" + missing.ID + " = true\n"
+	}
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
@@ -325,7 +329,7 @@ func TestRunCommandStreamsTextAndSavesSession(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := runHeadlessCommand("run", &stdout, &stderr, strings.NewReader(""), false, []string{"--disable-extension=memory", "hello"}, feature.NewRegistry(), factory)
+	code := runHeadlessCommand("run", &stdout, &stderr, strings.NewReader(""), false, []string{"--disable-extension=memory", "hello"}, testCompiledFeatureRegistry(t), factory)
 	if code != 0 {
 		t.Fatalf("runHeadlessCommand returned code %d, want 0", code)
 	}
@@ -366,7 +370,7 @@ func TestChatCommandStreamsMultipleTurnsWithoutTUI(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := runHeadlessCommand("chat", &stdout, &stderr, strings.NewReader("second prompt\n"), false, []string{"--disable-extension=memory", "first prompt"}, feature.NewRegistry(), factory)
+	code := runHeadlessCommand("chat", &stdout, &stderr, strings.NewReader("second prompt\n"), false, []string{"--disable-extension=memory", "first prompt"}, testCompiledFeatureRegistry(t), factory)
 	if code != 0 {
 		t.Fatalf("runHeadlessCommand returned code %d, want 0", code)
 	}
@@ -379,6 +383,15 @@ func TestChatCommandStreamsMultipleTurnsWithoutTUI(t *testing.T) {
 	if got := provider.CallCount(); got != 2 {
 		t.Fatalf("provider call count = %d, want 2", got)
 	}
+}
+
+func testCompiledFeatureRegistry(t *testing.T) *feature.Registry {
+	t.Helper()
+	compiled := feature.NewRegistry()
+	if err := feature.RegisterCompiledFeatures(compiled); err != nil {
+		t.Fatalf("RegisterCompiledFeatures returned error: %v", err)
+	}
+	return compiled
 }
 
 func TestRunCommandRejectsMissingPromptOnTTY(t *testing.T) {

@@ -73,26 +73,29 @@ const (
 
 // Event is emitted by the agent as it progresses through the loop.
 type Event struct {
-	Kind           EventKind          `json:"kind"`
-	State          State              `json:"state,omitempty"`
-	RunID          string             `json:"run_id,omitempty"`
-	SessionID      string             `json:"session_id,omitempty"`
-	TurnID         string             `json:"turn_id,omitempty"`
-	ToolCallID     string             `json:"tool_call_id,omitempty"`
-	Sequence       uint64             `json:"sequence,omitempty"`
-	Timestamp      time.Time          `json:"timestamp,omitempty"`
-	CorrelationID  string             `json:"correlation_id,omitempty"`
-	IdempotencyKey string             `json:"idempotency_key,omitempty"`
-	Turn           int                `json:"turn,omitempty"`
-	Message        ai.Message         `json:"message,omitempty"`
-	ToolCall       ai.ToolCall        `json:"tool_call,omitempty"`
-	ToolResult     ai.ToolResult      `json:"tool_result,omitempty"`
-	ToolProgress   tools.ToolProgress `json:"tool_progress,omitempty"`
-	Usage          ai.Usage           `json:"usage,omitempty"`
-	TextDelta      string             `json:"text_delta,omitempty"`
-	ThinkingDelta  string             `json:"thinking_delta,omitempty"`
-	Payload        json.RawMessage    `json:"payload,omitempty"`
-	Err            error              `json:"-"`
+	Kind                EventKind          `json:"kind"`
+	State               State              `json:"state,omitempty"`
+	RunID               string             `json:"run_id,omitempty"`
+	SessionID           string             `json:"session_id,omitempty"`
+	TurnID              string             `json:"turn_id,omitempty"`
+	ToolCallID          string             `json:"tool_call_id,omitempty"`
+	ToolOwnerID         string             `json:"tool_owner_id,omitempty"`
+	ToolOwnerGeneration uint64             `json:"tool_owner_generation,omitempty"`
+	RuntimeViewID       string             `json:"runtime_view_id,omitempty"`
+	Sequence            uint64             `json:"sequence,omitempty"`
+	Timestamp           time.Time          `json:"timestamp,omitempty"`
+	CorrelationID       string             `json:"correlation_id,omitempty"`
+	IdempotencyKey      string             `json:"idempotency_key,omitempty"`
+	Turn                int                `json:"turn,omitempty"`
+	Message             ai.Message         `json:"message,omitempty"`
+	ToolCall            ai.ToolCall        `json:"tool_call,omitempty"`
+	ToolResult          ai.ToolResult      `json:"tool_result,omitempty"`
+	ToolProgress        tools.ToolProgress `json:"tool_progress,omitempty"`
+	Usage               ai.Usage           `json:"usage,omitempty"`
+	TextDelta           string             `json:"text_delta,omitempty"`
+	ThinkingDelta       string             `json:"thinking_delta,omitempty"`
+	Payload             json.RawMessage    `json:"payload,omitempty"`
+	Err                 error              `json:"-"`
 }
 
 // EventSink receives state-machine events.
@@ -114,22 +117,24 @@ type ToolRegistry interface {
 
 // RunResult summarizes a completed or failed run.
 type RunResult struct {
-	Messages   []ai.Message            `json:"messages,omitempty"`
-	Usage      ai.Usage                `json:"usage,omitempty"`
-	Turns      int                     `json:"turns,omitempty"`
-	State      State                   `json:"state,omitempty"`
-	StopReason ai.StopReason           `json:"stop_reason,omitempty"`
-	Model      ai.Model                `json:"model,omitempty"`
-	Error      *ai.ProviderError       `json:"error,omitempty"`
-	Approval   *policy.ApprovalRequest `json:"approval,omitempty"`
+	Messages     []ai.Message            `json:"messages,omitempty"`
+	Usage        ai.Usage                `json:"usage,omitempty"`
+	Turns        int                     `json:"turns,omitempty"`
+	State        State                   `json:"state,omitempty"`
+	StopReason   ai.StopReason           `json:"stop_reason,omitempty"`
+	Model        ai.Model                `json:"model,omitempty"`
+	Error        *ai.ProviderError       `json:"error,omitempty"`
+	Approval     *policy.ApprovalRequest `json:"approval,omitempty"`
+	RuntimeViews []RuntimeViewInfo       `json:"runtime_views,omitempty"`
 }
 
 // PendingApproval is the durable continuation point for a tool invocation
 // that cannot proceed until a remote caller supplies a signed resolution.
 type PendingApproval struct {
-	Request  policy.ApprovalRequest `json:"request"`
-	ToolCall ai.ToolCall            `json:"tool_call"`
-	Turn     int                    `json:"turn"`
+	Request       policy.ApprovalRequest `json:"request"`
+	ToolCall      ai.ToolCall            `json:"tool_call"`
+	Turn          int                    `json:"turn"`
+	RuntimeViewID string                 `json:"runtime_view_id,omitempty"`
 }
 
 // Option configures an Agent.

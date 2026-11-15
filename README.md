@@ -1,6 +1,6 @@
 # Y
 
-Y is a Go runtime for agentic applications and coding workflows.
+Y is a Go SDK and runtime for building agentic applications and harnesses.
 
 The main runtime must build without Node, Bun, TypeScript, Python, cgo, or
 native dynamic plugins. Optional WASM extensions run on
@@ -22,6 +22,8 @@ with `feature_wasm_ext`.
 
 ## Documentation map
 
+- [`docs/philosophy.md`](docs/philosophy.md) — the Y SDK's core and component model.
+- [`docs/wasm-components.md`](docs/wasm-components.md) — WASM component manifests, grants, and lifecycle integration.
 - [`docs/runtime-protocol.md`](docs/runtime-protocol.md) — runtime protocol,
   transports, observability, compaction, and WASM lifecycle integration.
 

@@ -85,13 +85,83 @@ func TestApplyEnvironmentUsesInjectedLookup(t *testing.T) {
 
 func TestGenerateDefault(t *testing.T) {
 	got := GenerateDefault()
-	for _, section := range []string{"[features]", "[providers]", "[tools]", "[limits]"} {
+	for _, section := range []string{"[components.provider]", "[components.tools]", "[bindings]", "[limits]"} {
 		if !strings.Contains(got, section) {
 			t.Fatalf("default config missing %s", section)
 		}
 	}
-	if strings.Contains(got, "[memory]") || strings.Contains(got, "[extensions.memory]") {
-		t.Fatal("default config must not select a built-in extension")
+	if !strings.Contains(got, `type = "extensions.memory"`) {
+		t.Fatal("default composition must preserve the built-in memory extension")
+	}
+	if !strings.Contains(got, `version = "1.0.0"`) {
+		t.Fatal("default composition must pin component versions")
+	}
+}
+
+func TestParseExplicitComposition(t *testing.T) {
+	cfg, err := Parse(strings.NewReader(`
+[components.provider]
+type = "provider.openai"
+version = "1.2.3"
+
+[components.memory.settings]
+backend = "noop"
+max_items = 7
+
+[bindings]
+agent_provider = "provider"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HasExplicitComposition() {
+		t.Fatal("explicit composition was not recorded")
+	}
+	provider := cfg.Components["provider"]
+	if !provider.Enabled || provider.Type != "provider.openai" || provider.Version != "1.2.3" {
+		t.Fatalf("provider component = %+v", provider)
+	}
+	if got := cfg.Components["memory"].Settings["backend"]; got != "noop" {
+		t.Fatalf("memory backend = %q", got)
+	}
+	if got := cfg.Components["memory"].Settings["max_items"]; got != "7" {
+		t.Fatalf("memory max_items = %q", got)
+	}
+	if got := cfg.Bindings["agent_provider"]; got != "provider" {
+		t.Fatalf("provider binding = %q", got)
+	}
+}
+
+func TestValidateExplicitComposition(t *testing.T) {
+	capabilities := testCapabilities{
+		KindComponent: {"provider.openai": true, "tools.default": false},
+	}
+	cfg := Config{
+		CompositionExplicit: true,
+		Components: map[string]ComponentConfig{
+			"provider": {Type: "provider.openai", Enabled: true, Version: "1.2.3"},
+			"tools":    {Type: "tools.default", Enabled: false},
+		},
+		Bindings: map[string]string{"agent_provider": "provider"},
+	}
+	if err := Validate(cfg, capabilities); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+
+	cfg.Components["provider"] = ComponentConfig{Type: "provider.openai", Enabled: true, Version: "1.2"}
+	if err := Validate(cfg, capabilities); err == nil || !strings.Contains(err.Error(), "invalid version") {
+		t.Fatalf("Validate error = %v, want invalid exact version", err)
+	}
+
+	cfg.Components["provider"] = ComponentConfig{Type: "provider.openai", Enabled: false}
+	cfg.Bindings["agent_provider"] = "provider"
+	if err := Validate(cfg, capabilities); err == nil || !strings.Contains(err.Error(), "disabled component") {
+		t.Fatalf("Validate error = %v, want disabled binding target error", err)
+	}
+
+	cfg.Components["provider"] = ComponentConfig{Type: "provider.missing", Enabled: true}
+	if err := Validate(cfg, capabilities); err == nil || !strings.Contains(err.Error(), `unknown component "provider.missing"`) {
+		t.Fatalf("Validate error = %v, want unknown component error", err)
 	}
 }
 

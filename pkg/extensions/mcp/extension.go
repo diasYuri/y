@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/diasYuri/y/pkg/component"
 	extensionhost "github.com/diasYuri/y/pkg/extensions"
 	providerauth "github.com/diasYuri/y/pkg/providers/auth"
 	"github.com/diasYuri/y/pkg/tools"
@@ -357,6 +358,25 @@ func (e *Extension) Install(host *extensionhost.Host) error {
 	return e.RegisterTools(host.Registry)
 }
 
+// InstallScoped registers this extension's tools under the supplied owner
+// scope. Partial registration is rolled back if any tool conflicts or fails.
+func (e *Extension) InstallScoped(_ context.Context, host *extensionhost.Host, scope *component.Scope) error {
+	if e == nil || host == nil || scope == nil {
+		return errors.New("mcp: extension, host, and component scope are required")
+	}
+	e.mu.RLock()
+	if e.closed {
+		e.mu.RUnlock()
+		return errors.New("mcp: extension is closed")
+	}
+	servers := make([]*serverSession, 0, len(e.serverOrder))
+	for _, name := range e.serverOrder {
+		servers = append(servers, e.servers[name])
+	}
+	e.mu.RUnlock()
+	return registerToolsScoped(host, scope, servers)
+}
+
 // RegisterTools adds MCP tools, resource operations, and prompt operations to
 // registry. It checks all names before adding any entry so ordinary duplicate
 // names fail without partially registering this extension.
@@ -410,7 +430,6 @@ func (e *Extension) Close(ctx context.Context) error {
 			var wg sync.WaitGroup
 			var errMu sync.Mutex
 			for _, server := range servers {
-				server := server
 				wg.Add(1)
 				go func() {
 					defer wg.Done()

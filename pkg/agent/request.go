@@ -30,13 +30,25 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 	streamDefaults := a.streamDefaults
 	runID := a.runID
 	idempotencyKey := a.idempotencyKey
-	contextResolver := a.contextResolver
+	var contextResolver RuntimeContextResolver
+	if a.contextResolver != nil {
+		contextResolver = a.contextResolver
+	}
 	contextRequest := a.contextRequest
 	beforeRequest := a.beforeRequest
 	afterRequest := a.afterRequest
 	logger := a.logger
 	usageObserver := a.usageObserver
 	a.mu.Unlock()
+	runtimeHooks := a.hooksSnapshotFor(ctx)
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		if view.Tools() != nil {
+			registry = view.Tools()
+		}
+		if view.ContextResolver() != nil {
+			contextResolver = view.ContextResolver()
+		}
+	}
 
 	perCall := runOptionsFromContext(ctx).Stream
 	if provider == nil {
@@ -65,6 +77,7 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 			}
 		}
 	}
+	var contextVersions []string
 	if contextResolver != nil {
 		if contextRequest.BasePrompt == "" {
 			contextRequest.BasePrompt = systemPrompt
@@ -75,9 +88,21 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 			return ai.Message{}, ai.Usage{}, ai.StopReasonStop, resolveErr
 		}
 		systemPrompt = resolved.SystemPrompt
+		if view, ok := RuntimeViewFromContext(ctx); ok {
+			view.RecordContextSources(resolved.Sources)
+			a.mu.Lock()
+			if a.activeRuntimeView.ID == view.ID() {
+				a.activeRuntimeView = view.Info()
+			}
+			a.mu.Unlock()
+		}
+		contextVersions = make([]string, 0, len(resolved.Sources))
+		for _, source := range resolved.Sources {
+			contextVersions = append(contextVersions, source.Name+"@"+source.Version)
+		}
 	}
 	requestTools := toolDescriptors(registry)
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range runtimeHooks {
 		if hooks.Resources != nil {
 			resources, err := hooks.Resources(ctx)
 			if err != nil {
@@ -109,11 +134,16 @@ func (a *Agent) requestAssistant(ctx context.Context, model ai.Model, turn int) 
 		telemetry.Attribute{Key: "model.id", Value: model.ID},
 		telemetry.Attribute{Key: "turn", Value: turn},
 	)
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		requestSpan.SetAttributes(telemetry.Attribute{Key: "runtime.view.id", Value: view.ID()})
+	}
+	if len(contextVersions) > 0 {
+		requestSpan.SetAttributes(telemetry.Attribute{Key: "runtime.context.sources", Value: strings.Join(contextVersions, ",")})
+	}
 	ctx = requestCtx
 	requestStartedAt := time.Now()
 	defer requestSpan.End()
 
-	runtimeHooks := a.hooksSnapshot()
 	beforeRequestHooks := make([]BeforeRequestHook, 0, len(runtimeHooks)+1)
 	for _, hooks := range runtimeHooks {
 		if hooks.BeforeRequest != nil {

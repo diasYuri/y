@@ -142,3 +142,30 @@ func TestManagerCloseIsIdempotent(t *testing.T) {
 		t.Fatalf("second Close: %v", err)
 	}
 }
+
+func TestConfig_RejectsUnsupportedRuntimeGuarantees(t *testing.T) {
+	manifest, err := Parse("test", strings.NewReader(validManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		cfg       Config
+		runtime   RuntimeManifest
+		wantError bool
+	}{
+		{"fuel", Config{}, RuntimeManifest{Fuel: 1}, true},
+		{"unknown host", Config{}, RuntimeManifest{MinYVersion: "1.0.0"}, true},
+		{"old host", Config{HostVersion: "0.9.0"}, RuntimeManifest{MinYVersion: "1.0.0"}, true},
+		{"compatible host", Config{HostVersion: "v1.2.0"}, RuntimeManifest{MinYVersion: "1.0.0"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := manifest
+			m.Runtime = tc.runtime
+			err := tc.cfg.ValidateManifest(m)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("validation=%v", err)
+			}
+		})
+	}
+}

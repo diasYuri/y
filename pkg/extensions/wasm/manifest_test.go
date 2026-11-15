@@ -28,8 +28,8 @@ network = false
 [[tools]]
 name = "example_search"
 description = "Searches using the extension index."
-input_schema = "schemas/example_search.input.json"
-output_schema = "schemas/example_search.output.json"
+input_schema = "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}"
+output_schema = "{\"type\":\"object\",\"properties\":{}}"
 
 [[tools]]
 name = "example_index"

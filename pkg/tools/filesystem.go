@@ -873,25 +873,6 @@ func readLimitedFile(ctx context.Context, path string, maxBytes int64) ([]byte, 
 	return data, false, nil
 }
 
-func selectLines(text string, offset, limit int) string {
-	if offset <= 0 && limit <= 0 {
-		return text
-	}
-	lines := strings.Split(text, "\n")
-	start := 0
-	if offset > 0 {
-		start = offset - 1
-	}
-	if start >= len(lines) {
-		return ""
-	}
-	end := len(lines)
-	if limit > 0 && start+limit < end {
-		end = start + limit
-	}
-	return strings.Join(lines[start:end], "\n")
-}
-
 func selectLineRange(text string, startLine, endLine, maxLines int) (string, int, int, bool) {
 	lines := strings.Split(text, "\n")
 	lineCount := len(lines)

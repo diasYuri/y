@@ -106,6 +106,12 @@ func TestExtensionHTTPToolsResourcesPromptsAndBearerToken(t *testing.T) {
 	if requests.Load() == 0 {
 		t.Fatal("MCP server received no authenticated HTTP requests")
 	}
+	if err := host.Uninstall(context.Background(), ext.ID()); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.List(); len(got) != 0 {
+		t.Fatalf("registered tools after uninstall = %d, want zero", len(got))
+	}
 	if err := host.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -160,10 +160,7 @@ func (m *Manager) getServer(ctx context.Context, language, root string) (*manage
 		select {
 		case <-server.processDone:
 			delete(m.servers, key)
-			if server.waitErr != nil {
-				// A crashed process is restarted below; the next successful
-				// request can make progress without retaining stale state.
-			}
+			// A terminated process is restarted below.
 		default:
 			select {
 			case <-server.client.Done():

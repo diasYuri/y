@@ -3,5 +3,8 @@
 package feature
 
 func registerGoogleIfCompiled(r *Registry) error {
-	return r.AddProvider("google", "feature_google", "Google provider.")
+	if err := r.AddProvider("google", "feature_google", "Google provider."); err != nil {
+		return err
+	}
+	return r.AddComponent("provider.google", "feature_google", "Google provider component.")
 }

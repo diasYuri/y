@@ -50,6 +50,7 @@ func BuildToolRegistry(
 			Policy:        policyEngine,
 			Limits:        tools.ToolLimits{},
 		}); err != nil {
+			_ = registry.Close(context.Background())
 			return nil, err
 		}
 		if err := codesearch.Register(registry, codesearch.Options{
@@ -57,11 +58,13 @@ func BuildToolRegistry(
 			Policy:        policyEngine,
 			Limits:        tools.ToolLimits{},
 		}); err != nil {
+			_ = registry.Close(context.Background())
 			return nil, err
 		}
 	}
 	if compiled.Has(feature.KindFeature, "lsp") {
 		if err := lsp.Register(registry, lsp.Options{WorkspaceRoot: cwd, Policy: policyEngine}); err != nil {
+			_ = registry.Close(context.Background())
 			return nil, err
 		}
 	}
@@ -70,6 +73,7 @@ func BuildToolRegistry(
 			WorkspaceRoot: cwd,
 			Policy:        policyEngine,
 		}); err != nil {
+			_ = registry.Close(context.Background())
 			return nil, err
 		}
 	}
@@ -78,6 +82,7 @@ func BuildToolRegistry(
 			WorkspaceRoot: cwd,
 			Policy:        policyEngine,
 		}); err != nil {
+			_ = registry.Close(context.Background())
 			return nil, err
 		}
 	}

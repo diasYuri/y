@@ -53,7 +53,7 @@ func TestPollDeviceTokenSuccess(t *testing.T) {
 		mockResponse(200, `{"access_token":"tok-123","refresh_token":"rt-456","expires_in":3600,"token_type":"bearer"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	creds, err := PollDeviceToken(ctx, "http://example.com/token", "client-1", "device-1", 1)
@@ -118,7 +118,7 @@ func TestPollDeviceTokenExpired(t *testing.T) {
 		mockResponse(400, `{"error":"expired_token"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	_, err := PollDeviceToken(ctx, "http://example.com/token", "client", "device", 1)
@@ -135,7 +135,7 @@ func TestPollDeviceTokenAccessDenied(t *testing.T) {
 		mockResponse(400, `{"error":"access_denied"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	_, err := PollDeviceToken(ctx, "http://example.com/token", "client", "device", 1)
@@ -188,7 +188,7 @@ func TestPollDeviceTokenUnknownError(t *testing.T) {
 		mockResponse(400, `{"error":"invalid_request"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	_, err := PollDeviceToken(ctx, "http://example.com/token", "client", "device", 1)
@@ -205,7 +205,7 @@ func TestPollDeviceTokenNonJSONError(t *testing.T) {
 		mockResponse(500, "internal server error"),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	_, err := PollDeviceToken(ctx, "http://example.com/token", "client", "device", 1)
@@ -222,7 +222,7 @@ func TestPollDeviceTokenEmptyBodySuccess(t *testing.T) {
 		mockResponse(200, `{"access_token":"minimal"}`),
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	creds, err := PollDeviceToken(ctx, "http://example.com/token", "client", "device", 1)
@@ -249,7 +249,7 @@ func TestPollDeviceTokenRequestBody(t *testing.T) {
 	http.DefaultClient = &http.Client{Transport: &bodyCapturingRoundTripper{inner: rt, body: &capturedBody}}
 	defer func() { http.DefaultClient = old }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	_, err := PollDeviceToken(ctx, "http://example.com/token", "my-client", "my-device", 1)

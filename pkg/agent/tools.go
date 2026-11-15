@@ -21,6 +21,9 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall, t
 	mode := a.toolMode
 	concurrency := a.toolConcurrency
 	a.mu.Unlock()
+	if view, ok := RuntimeViewFromContext(ctx); ok && view.Tools() != nil {
+		registry = view.Tools()
+	}
 
 	if registry == nil || len(toolCalls) == 0 {
 		return nil, nil
@@ -44,7 +47,7 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall, t
 		for i, toolCall := range preparedCalls {
 			message, err := a.executeToolCall(ctx, registry, workspaceRoot, toolCall, turn)
 			if err != nil {
-				a.markApprovalPending(err, toolCall, turn)
+				a.markApprovalPending(ctx, err, toolCall, turn)
 				return results[:i], err
 			}
 			results[i] = message
@@ -74,7 +77,7 @@ func (a *Agent) executeToolCalls(ctx context.Context, toolCalls []ai.ToolCall, t
 
 			message, err := a.executeToolCall(ctx, registry, workspaceRoot, call, turn)
 			if err != nil {
-				a.markApprovalPending(err, call, turn)
+				a.markApprovalPending(ctx, err, call, turn)
 				errorsCh <- err
 				return
 			}
@@ -133,13 +136,24 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 		telemetry.Attribute{Key: "tool.name", Value: toolCall.Name},
 		telemetry.Attribute{Key: "tool.call_id", Value: toolCall.ID},
 	)
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		attributes := []telemetry.Attribute{{Key: "runtime.view.id", Value: view.ID()}}
+		for _, origin := range view.Info().Tools {
+			if origin.Name == toolCall.Name && origin.Owner != "" {
+				attributes = append(attributes, telemetry.Attribute{Key: "tool.owner.id", Value: origin.Owner})
+				attributes = append(attributes, telemetry.Attribute{Key: "tool.owner.generation", Value: origin.Generation})
+				break
+			}
+		}
+		toolSpan.SetAttributes(attributes...)
+	}
 	ctx = toolCtx
 	defer toolSpan.End()
 	toolStartedAt := time.Now()
 	toolRequestID := fmt.Sprintf("%s-run-%s-turn-%d-tool-%s", runID, runNonce, turn, toolCall.ID)
 	toolStartedEventKey := toolRequestID + ":started"
 	toolEndedEventKey := toolRequestID + ":ended"
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.BeforeTool != nil {
 			if err := hooks.BeforeTool(ctx, &toolCall); err != nil {
 				message := toolResultMessage(toolCall, tools.ToolResponse{}, err)
@@ -230,7 +244,7 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	}
 
 	message := toolResultMessage(toolCall, response, nil)
-	for _, hooks := range a.hooksSnapshot() {
+	for _, hooks := range a.hooksSnapshotFor(ctx) {
 		if hooks.AfterTool != nil {
 			if hookErr := hooks.AfterTool(ctx, toolCall, message.ToolResult); hookErr != nil {
 				message = toolResultMessage(toolCall, tools.ToolResponse{}, hookErr)
@@ -246,7 +260,7 @@ func (a *Agent) executeToolCall(ctx context.Context, registry ToolRegistry, work
 	return message, nil
 }
 
-func (a *Agent) markApprovalPending(err error, toolCall ai.ToolCall, turn int) {
+func (a *Agent) markApprovalPending(ctx context.Context, err error, toolCall ai.ToolCall, turn int) {
 	var approvalErr *tools.ApprovalError
 	if !errors.As(err, &approvalErr) || approvalErr == nil {
 		return
@@ -255,8 +269,14 @@ func (a *Agent) markApprovalPending(err error, toolCall ai.ToolCall, turn int) {
 	if request.ToolCallID == "" {
 		request.ToolCallID = toolCall.ID
 	}
+	viewID := ""
+	if view, ok := RuntimeViewFromContext(ctx); ok {
+		if view.bindsPendingApprovals() {
+			viewID = view.ID()
+		}
+	}
 	a.mu.Lock()
-	a.pendingApproval = &PendingApproval{Request: request, ToolCall: toolCall, Turn: turn}
+	a.pendingApproval = &PendingApproval{Request: request, ToolCall: toolCall, Turn: turn, RuntimeViewID: viewID}
 	a.mu.Unlock()
 }
 

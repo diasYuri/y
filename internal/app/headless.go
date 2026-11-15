@@ -17,8 +17,6 @@ import (
 	"github.com/diasYuri/y/internal/telemetry"
 	"github.com/diasYuri/y/pkg/agent"
 	"github.com/diasYuri/y/pkg/ai"
-	runtimeextensions "github.com/diasYuri/y/pkg/extensions"
-	"github.com/diasYuri/y/pkg/policy"
 	"github.com/diasYuri/y/pkg/session"
 	"github.com/diasYuri/y/pkg/tools"
 )
@@ -171,16 +169,15 @@ func runHeadlessCommand(
 		opts.sessionDir = storage.DefaultAgentDir()
 	}
 
-	sessionStore := storage.NewSessionStore(opts.sessionDir)
 	streamWriter := &headlessStreamWriter{w: stdout}
-	teleEmitter := telemetry.DefaultEmitter()
+	var teleEmitter telemetry.Emitter
 	agentOpts := []agent.Option{
 		agent.WithWorkspaceRoot(cwd),
 		agent.WithEventSink(func(ev agent.Event) {
 			if ev.Kind == agent.EventTextDelta {
 				streamWriter.WriteText(ev.TextDelta)
 			}
-			if ev.Kind == agent.EventTurnEnded {
+			if ev.Kind == agent.EventTurnEnded && teleEmitter != nil {
 				teleEmitter.Emit(telemetry.NewEvent(
 					telemetry.EventAgentTurn,
 					"",
@@ -233,14 +230,19 @@ func runHeadlessCommand(
 		return exitCodeUsage
 	}
 
-	provider, registry, extensionHost, runtimeCode := prepareHeadlessRuntime(ctx, mode, stderr, providerFactory, compiled, opts, cwd)
+	composition, runtimeCode := prepareHeadlessRuntime(ctx, mode, stderr, providerFactory, compiled, opts, cwd)
 	if runtimeCode != 0 {
 		return runtimeCode
 	}
-	defer func() { _ = registry.Close(context.Background()) }()
-	defer func() { _ = extensionHost.Close(context.Background()) }()
+	defer func() { _ = composition.Close(context.Background()) }()
+	provider := composition.Provider
+	registry := composition.Registry
+	sessionStore := composition.SessionStore
+	teleEmitter = composition.Telemetry
 	agentOpts = append(agentOpts, agent.WithContextIdentity("", cwd, cwd, "", ""))
-	agentOpts = append(agentOpts, extensionHost.AgentOptions()...)
+	if composition.Host != nil {
+		agentOpts = append(agentOpts, composition.Host.AgentOptions()...)
+	}
 
 	if mode == "run" {
 		return executeHeadlessTurn(ctx, stderr, run, provider, registry, agentOpts, sessionStore, cwd, prompt, opts.noSession, streamWriter)
@@ -259,28 +261,32 @@ func prepareHeadlessRuntime(
 	compiled *feature.Registry,
 	opts headlessOptions,
 	cwd string,
-) (agent.Provider, *tools.Registry, *runtimeextensions.Host, int) {
-	provider, err := providerFactory(ctx, compiled, opts)
-	if err != nil {
-		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
-		return nil, nil, nil, headlessExitCode(err)
-	}
-	registry, err := buildHeadlessRegistry(ctx, compiled, cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
-		return nil, nil, nil, headlessExitCode(err)
-	}
+) (*runtime.Composition, int) {
 	cfg, err := loadRuntimeConfig()
 	if err != nil {
 		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
-		return nil, nil, nil, exitCodeConfig
+		return nil, exitCodeConfig
 	}
-	host, err := buildExtensionHost(ctx, cfg, opts, provider, cwd, registry)
+	composition, err := runtime.BuildComposition(ctx, cfg, compiled, runtime.CompositionOptions{
+		CWD:                 cwd,
+		Model:               opts.model,
+		SessionDir:          opts.sessionDir,
+		RequireSessionStore: !opts.noSession,
+		ProviderFactory: func(providerCtx context.Context, selected string) (agent.Provider, error) {
+			factoryOpts := opts
+			if strings.TrimSpace(factoryOpts.providerName) == "" {
+				factoryOpts.providerName = selected
+			}
+			return providerFactory(providerCtx, compiled, factoryOpts)
+		},
+		DisabledExtensions: opts.disabledExtensions,
+		ExtensionSettings:  opts.extensionSettings,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "y %s: %v\n", mode, err)
-		return nil, nil, nil, exitCodeConfig
+		return nil, headlessExitCode(err)
 	}
-	return provider, registry, host, 0
+	return composition, 0
 }
 
 func executeHeadlessTurn(
@@ -646,10 +652,6 @@ func collectChatPrompts(stdin io.Reader, prompts []string) ([]string, error) {
 		return nil, err
 	}
 	return out, nil
-}
-
-func buildHeadlessRegistry(ctx context.Context, compiled *feature.Registry, cwd string) (*tools.Registry, error) {
-	return runtime.BuildToolRegistry(ctx, compiled, cwd, policy.NewEngine(policy.DefaultConfig()), nil, telemetry.DefaultEmitter())
 }
 
 func printHeadlessUsage(w io.Writer, mode string) {

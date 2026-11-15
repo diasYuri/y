@@ -3,5 +3,8 @@
 package feature
 
 func registerLocalIfCompiled(r *Registry) error {
-	return r.AddProvider("local", "feature_local", "Local/OpenAI-compatible providers.")
+	if err := r.AddProvider("local", "feature_local", "Local/OpenAI-compatible providers."); err != nil {
+		return err
+	}
+	return r.AddComponent("provider.local", "feature_local", "Local provider component.")
 }
