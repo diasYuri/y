@@ -641,12 +641,13 @@ func buildSDKContent(blocks []ai.ContentBlock) (responses.ResponseInputMessageCo
 }
 
 type openAIStreamState struct {
-	toolIDs map[string]string
-	sawTool bool
+	toolIDs   map[string]string
+	toolNames map[string]string
+	sawTool   bool
 }
 
 func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
-	state := &openAIStreamState{toolIDs: make(map[string]string)}
+	state := &openAIStreamState{toolIDs: make(map[string]string), toolNames: make(map[string]string)}
 	return func(event responses.ResponseStreamEventUnion) []ai.Event {
 		switch event.Type {
 		case "response.output_text.delta":
@@ -662,16 +663,21 @@ func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
 			if event.Item.Type == "function_call" {
 				call := event.Item.AsFunctionCall()
 				state.toolIDs[call.ID] = call.CallID
+				state.toolNames[call.ID] = call.Name
 				state.sawTool = true
 			}
 		case "response.function_call_arguments.delta":
 			state.sawTool = true
 			callID := state.toolIDs[event.ItemID]
-			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID}, ArgumentsDelta: json.RawMessage(event.Delta), Complete: false}}
+			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID, Name: state.toolNames[event.ItemID]}, ArgumentsDelta: json.RawMessage(event.Delta), Complete: false}}
 		case "response.function_call_arguments.done":
+			name := event.Name
+			if name == "" {
+				name = state.toolNames[event.ItemID]
+			}
 			state.sawTool = true
 			callID := state.toolIDs[event.ItemID]
-			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID, Name: event.Name, Arguments: json.RawMessage(event.Arguments)}, Complete: true}}
+			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID, Name: name, Arguments: json.RawMessage(event.Arguments)}, Complete: true}}
 		case "response.completed", "response.incomplete":
 			response := event.Response
 			var events []ai.Event

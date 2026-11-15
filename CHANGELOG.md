@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.1 — OpenAI tool-call stream identity
+
+- Preserve function names from output-item metadata when Responses argument deltas/completion events omit the name. Covered by a regression fixture matching the live provider stream.
+
 ## v1.3.0 — Local SDK harness services
 
 - Add injected OAuth device/PKCE/refresh clients without terminal or storage dependencies.
