@@ -689,6 +689,9 @@ func lspURIPath(value string) string {
 		return ""
 	}
 	path := parsed.Path
+	if runtime.GOOS == "windows" && len(parsed.Host) == 2 && parsed.Host[1] == ':' {
+		path = parsed.Host + path
+	}
 	if runtime.GOOS == "windows" && len(path) >= 3 && path[0] == '/' && path[2] == ':' {
 		path = path[1:]
 	}
