@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.2 — Durable runtime-view approval identity
+
+- Persist the logical agent runtime-view identity in public snapshots so an unchanged host view can resume an approved operation after a runner handoff. Changed host views remain subject to the existing approval mismatch checks.
+
+
 ## v1.3.1 — OpenAI tool-call stream identity
 
 - Preserve function names from output-item metadata when Responses argument deltas/completion events omit the name. Covered by a regression fixture matching the live provider stream.

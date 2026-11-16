@@ -133,3 +133,40 @@ func TestRunnerRuntimeViewCannotBypassOperationStore(t *testing.T) {
 		})
 	}
 }
+
+func TestRunnerRuntimeViewApprovalSurvivesHandoff(t *testing.T) {
+	ctx := context.Background()
+	states := agent.NewInMemoryStateStore()
+	events := agent.NewInMemoryEventStore()
+	var effects atomic.Int32
+	makeRegistry := func() *tools.Registry {
+		registry := tools.NewRegistry(tools.WithPolicy(policy.NewEngine(policy.Config{})))
+		if err := registry.Add(tools.ToolDescriptor{Name: "mutate", Sensitive: true, InputSchema: []byte(`{"type":"object"}`)}, tools.ToolHandlerFunc(func(context.Context, tools.ToolRequest) (tools.ToolResponse, error) {
+			effects.Add(1)
+			return tools.ToolResponse{}, nil
+		})); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = registry.Close(ctx) })
+		return registry
+	}
+	registry := makeRegistry()
+	first := agent.NewAgentRunner(agenttest.NewScriptProvider(t, agenttest.ToolTurn("mutate", `{}`)), registry, agent.WithRunnerStateStore(states), agent.WithRunnerOperationStore(events), agent.WithRunnerAgentOptions(agent.WithRuntimeViewSource(capturedSource{registry})))
+	pending, err := first.Run(ctx, agent.RunRequest{RunID: "view-handoff", Prompt: "modify"})
+	if !errors.Is(err, agent.ErrApprovalPending) || pending.Snapshot.Agent.PendingApproval == nil || effects.Load() != 0 {
+		t.Fatalf("expected durable pending approval: %v", err)
+	}
+	if pending.Snapshot.Agent.RuntimeViewInstanceID == "" {
+		t.Fatal("logical runtime identity was not checkpointed")
+	}
+	if err := first.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	registry = makeRegistry()
+	second := agent.NewAgentRunner(agenttest.NewScriptProvider(t, agenttest.TextTurn("done")), registry, agent.WithRunnerStateStore(states), agent.WithRunnerOperationStore(events), agent.WithRunnerAgentOptions(agent.WithRuntimeViewSource(capturedSource{registry})))
+	defer func() { _ = second.Close(ctx) }()
+	result, err := second.Run(ctx, agent.RunRequest{RunID: "view-handoff", Approval: &policy.ApprovalResolution{ApprovalID: pending.Snapshot.Agent.PendingApproval.Request.ApprovalID, State: policy.ApprovalApproved, Actor: "user"}})
+	if err != nil || effects.Load() != 1 {
+		t.Fatalf("approved effect was lost after handoff: %v effects=%d result=%s", err, effects.Load(), result.Snapshot.Status)
+	}
+}
