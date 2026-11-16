@@ -54,6 +54,11 @@ type AgentSnapshot struct {
 	// a terminal run settles.
 	RunNonce string `json:"run_nonce,omitempty"`
 
+	// RuntimeViewInstanceID preserves the logical agent identity used to bind
+	// runtime-view approvals across an explicit durable runner handoff. Live
+	// registrations remain supplied by the host and are never serialized.
+	RuntimeViewInstanceID string `json:"runtime_view_instance_id,omitempty"`
+
 	// ContextRequest identifies the context scopes used by the run.
 	ContextRequest ycontext.Request `json:"context_request,omitempty"`
 
@@ -267,6 +272,7 @@ func (a *Agent) Snapshot() AgentSnapshot {
 	idempotencyKey := a.idempotencyKey
 	runID := a.runID
 	runNonce := a.runNonce
+	runtimeViewInstanceID := a.runtimeViewInstanceID
 	transcriptVersion := a.transcriptVersion
 
 	var thinking map[ai.ThinkingLevel]int64
@@ -297,6 +303,7 @@ func (a *Agent) Snapshot() AgentSnapshot {
 		Version:                transcriptVersion,
 		RunID:                  runID,
 		RunNonce:               runNonce,
+		RuntimeViewInstanceID:  runtimeViewInstanceID,
 		ContextRequest:         contextRequest,
 		PolicyIdentity:         clonePolicyIdentity(policyIdentity),
 		PolicyVersion:          policyVersion,
@@ -352,6 +359,9 @@ func (a *Agent) Restore(snap AgentSnapshot) error {
 	}
 	a.runID = snap.RunID
 	a.runNonce = snap.RunNonce
+	if snap.RuntimeViewInstanceID != "" {
+		a.runtimeViewInstanceID = snap.RuntimeViewInstanceID
+	}
 	a.contextRequest = snap.ContextRequest
 	a.policyIdentity = clonePolicyIdentity(snap.PolicyIdentity)
 	a.policyVersion = snap.PolicyVersion
