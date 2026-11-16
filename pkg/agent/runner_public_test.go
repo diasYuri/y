@@ -170,3 +170,79 @@ func TestRunnerRuntimeViewApprovalSurvivesHandoff(t *testing.T) {
 		t.Fatalf("approved effect was lost after handoff: %v effects=%d result=%s", err, effects.Load(), result.Snapshot.Status)
 	}
 }
+
+func TestRunnerConsumesApprovalBeforeNextOperation(t *testing.T) {
+	for _, decision := range []policy.ApprovalState{policy.ApprovalApproved, policy.ApprovalDenied} {
+		t.Run(string(decision), func(t *testing.T) {
+			ctx := context.Background()
+			registry := tools.NewRegistry(tools.WithPolicy(policy.NewEngine(policy.Config{})))
+			defer func() { _ = registry.Close(ctx) }()
+			counts := map[string]int{}
+			for _, name := range []string{"first", "second"} {
+				if err := registry.Add(tools.ToolDescriptor{Name: name, Sensitive: true, InputSchema: []byte(`{"type":"object"}`)}, tools.ToolHandlerFunc(func(context.Context, tools.ToolRequest) (tools.ToolResponse, error) {
+					counts[name]++
+					return tools.ToolResponse{}, nil
+				})); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner := agent.NewAgentRunner(providertest.NewFakeProvider(providertest.WithFakeResponses(
+				providertest.FakeResponse{Events: []ai.Event{ai.ToolCallEvent{ToolCall: ai.ToolCall{ID: "first-id", Name: "first", Arguments: []byte(`{}`)}, Complete: true}, ai.StopEvent{Reason: ai.StopReasonToolUse}}},
+				providertest.FakeResponse{Events: []ai.Event{ai.ToolCallEvent{ToolCall: ai.ToolCall{ID: "second-id", Name: "second", Arguments: []byte(`{}`)}, Complete: true}, ai.StopEvent{Reason: ai.StopReasonToolUse}}},
+				providertest.FakeResponse{Events: []ai.Event{ai.TextDelta{Text: "done"}, ai.StopEvent{Reason: ai.StopReasonStop}}})), registry, agent.WithRunnerStateStore(agent.NewInMemoryStateStore()), agent.WithRunnerEventStore(agent.NewInMemoryEventStore()))
+			defer func() { _ = runner.Close(ctx) }()
+			first, err := runner.Run(ctx, agent.RunRequest{RunID: "scoped-resolution", Prompt: "two operations"})
+			if !errors.Is(err, agent.ErrApprovalPending) {
+				t.Fatal(err)
+			}
+			second, err := runner.Run(ctx, agent.RunRequest{RunID: "scoped-resolution", Approval: &policy.ApprovalResolution{ApprovalID: first.Snapshot.Agent.PendingApproval.Request.ApprovalID, State: decision}})
+			if !errors.Is(err, agent.ErrApprovalPending) || second.Snapshot.Agent.PendingApproval == nil || second.Snapshot.Agent.PendingApproval.ToolCall.Name != "second" {
+				t.Fatalf("second operation did not get independent approval: %v", err)
+			}
+			if counts["second"] != 0 {
+				t.Fatal("second operation ran without approval")
+			}
+			_, err = runner.Run(ctx, agent.RunRequest{RunID: "scoped-resolution", Approval: &policy.ApprovalResolution{ApprovalID: second.Snapshot.Agent.PendingApproval.Request.ApprovalID, State: policy.ApprovalApproved}})
+			if err != nil || counts["second"] != 1 {
+				t.Fatal(err, counts)
+			}
+			expected := 0
+			if decision == policy.ApprovalApproved {
+				expected = 1
+			}
+			if counts["first"] != expected {
+				t.Fatal(counts)
+			}
+		})
+	}
+}
+
+type structuredProvider struct{ *agenttest.ScriptProvider }
+
+func (structuredProvider) Capabilities(string) providers.Capabilities {
+	return providers.Capabilities{Streaming: true, Tools: true, StructuredOutput: true}
+}
+func TestRunnerValidatesStructuredFinalAfterIntermediateTool(t *testing.T) {
+	ctx := context.Background()
+	registry := tools.NewRegistry()
+	defer func() { _ = registry.Close(ctx) }()
+	calls := 0
+	if err := registry.Add(tools.ToolDescriptor{Name: "lookup", InputSchema: []byte(`{"type":"object"}`)}, tools.ToolHandlerFunc(func(context.Context, tools.ToolRequest) (tools.ToolResponse, error) {
+		calls++
+		return tools.ToolResponse{}, nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	provider := structuredProvider{agenttest.NewScriptProvider(t, agenttest.ToolTurn("lookup", `{}`), agenttest.TextTurn(`{"answer":42}`))}
+	format := &ai.ResponseFormat{Type: ai.ResponseFormatJSONSchema, Name: "answer", Schema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`)}
+	runner := agent.NewAgentRunner(provider, registry, agent.WithRunnerStateStore(agent.NewInMemoryStateStore()), agent.WithRunnerAgentOptions(agent.WithStreamDefaults(providers.StreamOptions{ResponseFormat: format})))
+	defer func() { _ = runner.Close(ctx) }()
+	result, err := runner.Run(ctx, agent.RunRequest{RunID: "structured-tools", Prompt: "lookup and answer"})
+	if err != nil || calls != 1 {
+		t.Fatal("intermediate tool rejected as final structured output", err, calls)
+	}
+	messages := result.Result.Messages
+	if len(messages) == 0 || string(messages[len(messages)-1].StructuredOutput) != `{"answer":42}` {
+		t.Fatal("final structured output not validated")
+	}
+}

@@ -279,6 +279,11 @@ func (a *Agent) RunMessages(ctx context.Context, messages ...ai.Message) (result
 			a.emit(Event{Kind: EventTurnCompleted, Turn: pendingApproval.Turn, State: StateExecutingTools, ToolCall: pendingApproval.ToolCall})
 			a.emit(Event{Kind: EventTurnEnded, Turn: pendingApproval.Turn, State: StateExecutingTools, ToolCall: pendingApproval.ToolCall})
 			pendingApproval = nil
+			// A resolution authorizes exactly the resumed operation. Future calls
+			// must be evaluated independently, including after an explicit denial.
+			a.mu.Lock()
+			a.approvalResolution = nil
+			a.mu.Unlock()
 			if err := rotateView(); err != nil {
 				a.setState(StateFailed)
 				return a.snapshotResult(result, StateFailed), err
