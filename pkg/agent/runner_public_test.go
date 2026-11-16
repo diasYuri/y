@@ -216,3 +216,33 @@ func TestRunnerConsumesApprovalBeforeNextOperation(t *testing.T) {
 		})
 	}
 }
+
+type structuredProvider struct{ *agenttest.ScriptProvider }
+
+func (structuredProvider) Capabilities(string) providers.Capabilities {
+	return providers.Capabilities{Streaming: true, Tools: true, StructuredOutput: true}
+}
+func TestRunnerValidatesStructuredFinalAfterIntermediateTool(t *testing.T) {
+	ctx := context.Background()
+	registry := tools.NewRegistry()
+	defer func() { _ = registry.Close(ctx) }()
+	calls := 0
+	if err := registry.Add(tools.ToolDescriptor{Name: "lookup", InputSchema: []byte(`{"type":"object"}`)}, tools.ToolHandlerFunc(func(context.Context, tools.ToolRequest) (tools.ToolResponse, error) {
+		calls++
+		return tools.ToolResponse{}, nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	provider := structuredProvider{agenttest.NewScriptProvider(t, agenttest.ToolTurn("lookup", `{}`), agenttest.TextTurn(`{"answer":42}`))}
+	format := &ai.ResponseFormat{Type: ai.ResponseFormatJSONSchema, Name: "answer", Schema: []byte(`{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"]}`)}
+	runner := agent.NewAgentRunner(provider, registry, agent.WithRunnerStateStore(agent.NewInMemoryStateStore()), agent.WithRunnerAgentOptions(agent.WithStreamDefaults(providers.StreamOptions{ResponseFormat: format})))
+	defer func() { _ = runner.Close(ctx) }()
+	result, err := runner.Run(ctx, agent.RunRequest{RunID: "structured-tools", Prompt: "lookup and answer"})
+	if err != nil || calls != 1 {
+		t.Fatal("intermediate tool rejected as final structured output", err, calls)
+	}
+	messages := result.Result.Messages
+	if len(messages) == 0 || string(messages[len(messages)-1].StructuredOutput) != `{"answer":42}` {
+		t.Fatal("final structured output not validated")
+	}
+}

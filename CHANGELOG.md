@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.4 — Structured final output after tools
+
+- Validate the requested response format only for final assistant content; intermediate tool calls remain subject to their own argument/policy validation. Cover a tool turn followed by validated JSON Schema output through the public runner.
+
+
 ## v1.3.3 — Scoped approval resolutions
 
 - Consume an approval or denial after the pending tool call, so later operations request independent authorization instead of reusing a stale resolution.

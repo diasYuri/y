@@ -345,7 +345,7 @@ func latestUserQuery(messages []ai.Message) string {
 
 func applyStructuredOutput(message *ai.Message, request providers.StreamRequest, providerID string) error {
 	format := request.Options.ResponseFormat
-	if format == nil || format.Type == ai.ResponseFormatText {
+	if format == nil || format.Type == ai.ResponseFormatText || len(message.ToolCalls) > 0 {
 		return nil
 	}
 	var text strings.Builder
