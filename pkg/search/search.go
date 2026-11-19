@@ -26,24 +26,62 @@ const (
 	ContextSizeHigh   ContextSize = "high"
 )
 
-// Capabilities reports which optional controls a backend can apply. Tool
-// adapters should advertise only controls reported here.
+// SafeSearch is the requested level of explicit-content filtering.
+// An empty value leaves the provider's configured default unchanged.
+type SafeSearch string
+
+const (
+	// SafeSearchOff disables explicit-content filtering.
+	SafeSearchOff SafeSearch = "off"
+	// SafeSearchModerate enables the provider's moderate explicit-content filter.
+	SafeSearchModerate SafeSearch = "moderate"
+	// SafeSearchStrict enables the provider's strict explicit-content filter.
+	SafeSearchStrict SafeSearch = "strict"
+)
+
+// DateRange constrains publication dates to inclusive calendar dates in
+// YYYY-MM-DD form. At least one bound must be set. Backends without a
+// publication-date filter must not advertise the DateRange capability.
+type DateRange struct {
+	// Start is the inclusive first date, or empty for an open lower bound.
+	Start string `json:"start,omitempty"`
+	// End is the inclusive last date, or empty for an open upper bound.
+	End string `json:"end,omitempty"`
+}
+
+// Capabilities reports which optional controls a backend can enforce. A true
+// flag means the provider applies the full control semantics. Tool adapters
+// should advertise only controls reported here.
 type Capabilities struct {
-	AllowedDomains bool
-	Location       bool
-	ContextSize    bool
-	MaxResults     bool
+	AllowedDomains  bool // Restrict result hosts to listed domains and their subdomains.
+	ExcludedDomains bool // Exclude result hosts matching listed domains or subdomains.
+	Location        bool // Geographic or locale hint with provider-defined mapping.
+	ContextSize     bool // Selection of the amount of supporting result context.
+	MaxResults      bool // Caller-provided upper bound on the result count.
+	Country         bool // Search country using an ISO 3166-1 alpha-2 code.
+	Language        bool // Result language using an ISO 639-1 code.
+	DateRange       bool // Inclusive publication-date bounds in YYYY-MM-DD form.
+	SafeSearch      bool // Off, moderate, and strict explicit-content filtering levels.
 }
 
 // Request is a provider-neutral web search. A backend must enforce every
 // requested control it accepts; unsupported controls must return
-// ErrUnsupportedControl instead of being silently ignored.
+// ErrUnsupportedControl instead of being silently ignored. Country uses an
+// ISO 3166-1 alpha-2 code, Language uses an ISO 639-1 code, and SafeSearch may
+// be left empty to retain the backend's configured default. Domain filters
+// match hostnames case-insensitively, including subdomains; exclusions take
+// precedence when a host matches both lists.
 type Request struct {
-	Query          string      `json:"query"`
-	AllowedDomains []string    `json:"allowed_domains,omitempty"`
-	Location       string      `json:"location,omitempty"`
-	ContextSize    ContextSize `json:"context_size,omitempty"`
-	MaxResults     int         `json:"max_results,omitempty"`
+	Query           string      `json:"query"`
+	AllowedDomains  []string    `json:"allowed_domains,omitempty"`  // Restrict results to these domains and their subdomains.
+	ExcludedDomains []string    `json:"excluded_domains,omitempty"` // Exclude these domains and their subdomains; takes precedence.
+	Location        string      `json:"location,omitempty"`         // Free-form geographic or locale hint.
+	ContextSize     ContextSize `json:"context_size,omitempty"`     // Amount of supporting context to return.
+	MaxResults      int         `json:"max_results,omitempty"`      // Maximum result count requested.
+	Country         string      `json:"country,omitempty"`          // ISO 3166-1 alpha-2 target country.
+	Language        string      `json:"language,omitempty"`         // ISO 639-1 content language.
+	DateRange       *DateRange  `json:"date_range,omitempty"`       // Inclusive publication-date bounds.
+	SafeSearch      SafeSearch  `json:"safe_search,omitempty"`      // Explicit-content filtering level.
 }
 
 // Result contains the citation fields callers may safely expose to an agent.
