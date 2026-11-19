@@ -8,13 +8,25 @@ in `pkg/providers`. Y defines no search transport, network client, vendor
 integration, or default backend.
 
 The provider receives a typed `search.Request` with a required query and
-common optional controls: allowed domains, location, result `context_size`
-(`low`, `medium`, or `high`), and a maximum result count. `context_size` means
-the amount of supporting context returned with results; it never carries
-arbitrary prompt text. Its `Capabilities` declaration controls which optional
-fields appear in the generated tool schema. A backend must enforce controls it
-accepts and return `search.ErrUnsupportedControl` for unsupported controls; it
-must not silently ignore them.
+optional controls: allowed and excluded domains, location, result
+`context_size` (`low`, `medium`, or `high`), a maximum result count, country,
+language, publication-date range, and SafeSearch level. Domain filters match
+the listed hostname and its subdomains case-insensitively; exclusions take
+precedence when a host matches both lists. Country uses an ISO 3166-1 alpha-2
+code and language uses an ISO 639-1 code; the tool normalizes them to uppercase
+and lowercase respectively before calling the provider. `date_range` uses
+inclusive publication dates in `YYYY-MM-DD` form and requires at least one
+bound. A provider without a publication-date filter must not advertise that
+capability. SafeSearch accepts `off`, `moderate`, and `strict`; an empty value
+retains the provider's configured default. `context_size` means the amount of
+supporting context returned with results; it never carries arbitrary prompt
+text.
+
+The provider's `Capabilities` declaration controls which optional fields
+appear in the generated tool schema. A true capability means the backend can
+apply the complete semantics of that control. A backend must enforce controls
+it accepts and return `search.ErrUnsupportedControl` for unsupported controls;
+it must not silently ignore them.
 
 Results use `search.Response` and `search.Result`. Each result has a title,
 absolute HTTP(S) URL, snippet, and optional string metadata. Metadata is
