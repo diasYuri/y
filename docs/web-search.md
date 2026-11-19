@@ -29,10 +29,15 @@ it accepts and return `search.ErrUnsupportedControl` for unsupported controls;
 it must not silently ignore them.
 
 Results use `search.Response` and `search.Result`. Each result has a title,
-absolute HTTP(S) URL, snippet, and optional string metadata. Metadata is
-intended for non-sensitive facts only; credentials, request headers, internal
-debug data, and raw provider payloads must not be returned there. The adapter
-validates citation fields and bounded metadata before forwarding results.
+absolute HTTP(S) URL, and snippet. It may also include `page_date` in
+`YYYY-MM-DD` form and up to five additional `highlights` of at most 2,000 bytes
+each. `page_date` is the provider's most relevant reported date and may reflect
+publication or modification; it must not be presented as a publication date
+unless the backend can distinguish those meanings. `metadata` is limited to
+non-sensitive facts, including the provider identity when useful; credentials,
+request headers, internal debug data, and raw provider payloads must not be
+returned there. The adapter validates citation fields and bounds on evidence
+and metadata before forwarding results.
 
 The adapter registers `web_search` with the `web.search` policy capability and
 marks it sensitive because queries can disclose user context to an external
