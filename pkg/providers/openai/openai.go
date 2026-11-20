@@ -572,8 +572,14 @@ func buildSDKMessage(msg ai.Message) ([]responses.ResponseInputItemUnionParam, e
 			return nil, nil
 		}
 		callID, _ := splitToolCallID(msg.ToolResult.ToolCallID)
+		output := &responses.ResponseInputItemFunctionCallOutputParam{
+			CallID: param.NewOpt(callID),
+			Output: responses.ResponseInputItemFunctionCallOutputOutputUnionParam{
+				OfString: param.NewOpt(toolResultText(msg.ToolResult.Content)),
+			},
+		}
 		return []responses.ResponseInputItemUnionParam{
-			responses.ResponseInputItemParamOfFunctionCallOutput(callID, toolResultText(msg.ToolResult.Content)),
+			{OfFunctionCallOutput: output},
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported message role %q", msg.Role)
@@ -667,17 +673,16 @@ func newOpenAIConsumer() func(responses.ResponseStreamEventUnion) []ai.Event {
 				state.sawTool = true
 			}
 		case "response.function_call_arguments.delta":
+			delta := event.AsResponseFunctionCallArgumentsDelta()
 			state.sawTool = true
-			callID := state.toolIDs[event.ItemID]
-			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID, Name: state.toolNames[event.ItemID]}, ArgumentsDelta: json.RawMessage(event.Delta), Complete: false}}
+			callID := state.toolIDs[delta.ItemID]
+			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(delta.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + delta.ItemID, Name: state.toolNames[delta.ItemID]}, ArgumentsDelta: json.RawMessage(delta.Delta), Complete: false}}
 		case "response.function_call_arguments.done":
-			name := event.Name
-			if name == "" {
-				name = state.toolNames[event.ItemID]
-			}
+			done := event.AsResponseFunctionCallArgumentsDone()
+			name := state.toolNames[done.ItemID]
 			state.sawTool = true
-			callID := state.toolIDs[event.ItemID]
-			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(event.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + event.ItemID, Name: name, Arguments: json.RawMessage(event.Arguments)}, Complete: true}}
+			callID := state.toolIDs[done.ItemID]
+			return []ai.Event{ai.ToolCallEvent{ContentIndex: int(done.OutputIndex), ToolCall: ai.ToolCall{ID: callID + "|" + done.ItemID, Name: name, Arguments: json.RawMessage(done.Arguments)}, Complete: true}}
 		case "response.completed", "response.incomplete":
 			response := event.Response
 			var events []ai.Event
