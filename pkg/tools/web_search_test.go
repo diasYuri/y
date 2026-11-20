@@ -37,7 +37,9 @@ func TestRegisterWebSearchProvider_UsesRegistryPolicyAndCitationContract(t *test
 				t.Fatalf("unexpected request: %#v", req)
 			}
 			return search.Response{Results: []search.Result{{
-				Title: "Y SDK", URL: "https://example.com/y", Snippet: "SDK documentation", Metadata: map[string]string{"source": "docs"},
+				Title: "Y SDK", URL: "https://example.com/y", Snippet: "SDK documentation",
+				PageDate: "2025-01-15", Highlights: []string{"Public component contract", "Runtime composition"},
+				Metadata: map[string]string{"provider": "fixture", "source": "docs"},
 			}}}, nil
 		},
 	}
@@ -73,11 +75,16 @@ func TestRegisterWebSearchProvider_UsesRegistryPolicyAndCitationContract(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !called || !strings.Contains(response.Content[0].Text, "https://example.com/y") {
+	if !called || !strings.Contains(response.Content[0].Text, "https://example.com/y") ||
+		!strings.Contains(response.Content[0].Text, `Provider: "fixture"`) ||
+		!strings.Contains(response.Content[0].Text, "Page date: 2025-01-15") ||
+		!strings.Contains(response.Content[0].Text, "Highlight: Public component contract") {
 		t.Fatalf("search result not exposed as citation: %#v", response)
 	}
 	var result search.Response
-	if err := json.Unmarshal(response.Details, &result); err != nil || len(result.Results) != 1 || result.Results[0].Metadata["source"] != "docs" {
+	if err := json.Unmarshal(response.Details, &result); err != nil || len(result.Results) != 1 ||
+		result.Results[0].PageDate != "2025-01-15" || len(result.Results[0].Highlights) != 2 ||
+		result.Results[0].Metadata["provider"] != "fixture" || result.Results[0].Metadata["source"] != "docs" {
 		t.Fatalf("unexpected structured result: %#v, err=%v", result, err)
 	}
 	if err := registration.Close(context.Background()); err != nil {
@@ -173,6 +180,28 @@ func TestNewWebSearchTool_RejectsUnciteableBackendResults(t *testing.T) {
 	_, err = handler.Handle(context.Background(), ToolRequest{Arguments: json.RawMessage(`{"query":"valid"}`)})
 	if !errors.Is(err, search.ErrInvalidResult) {
 		t.Fatalf("invalid result error = %v", err)
+	}
+}
+
+func TestNewWebSearchTool_RejectsUnboundedOrInvalidEvidence(t *testing.T) {
+	for name, result := range map[string]search.Result{
+		"invalid page date":   {Title: "Title", URL: "https://example.com", PageDate: "2025-02-30"},
+		"too many highlights": {Title: "Title", URL: "https://example.com", Highlights: []string{"1", "2", "3", "4", "5", "6"}},
+		"oversized highlight": {Title: "Title", URL: "https://example.com", Highlights: []string{strings.Repeat("x", 2001)}},
+		"empty highlight":     {Title: "Title", URL: "https://example.com", Highlights: []string{"  "}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, handler, err := NewWebSearchTool(searchProviderFunc{search: func(context.Context, search.Request) (search.Response, error) {
+				return search.Response{Results: []search.Result{result}}, nil
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = handler.Handle(context.Background(), ToolRequest{Arguments: json.RawMessage(`{"query":"valid"}`)})
+			if !errors.Is(err, search.ErrInvalidResult) {
+				t.Fatalf("invalid evidence error = %v", err)
+			}
+		})
 	}
 }
 

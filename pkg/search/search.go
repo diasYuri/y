@@ -84,13 +84,18 @@ type Request struct {
 	SafeSearch      SafeSearch  `json:"safe_search,omitempty"`      // Explicit-content filtering level.
 }
 
-// Result contains the citation fields callers may safely expose to an agent.
-// Metadata is limited to non-sensitive, provider-neutral facts.
+// Result contains bounded citation evidence callers may safely expose to an
+// agent. PageDate is the provider's most relevant reported page date, which may
+// represent publication or modification; it uses YYYY-MM-DD. Highlights are
+// additional excerpts from the result page. Metadata is limited to
+// non-sensitive facts and may identify the search provider.
 type Result struct {
-	Title    string            `json:"title"`
-	URL      string            `json:"url"`
-	Snippet  string            `json:"snippet"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Title      string            `json:"title"`
+	URL        string            `json:"url"`
+	Snippet    string            `json:"snippet"`
+	PageDate   string            `json:"page_date,omitempty"`
+	Highlights []string          `json:"highlights,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 // Response contains ordered, citeable results from one search.

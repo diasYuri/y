@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -338,6 +339,20 @@ func validateSearchResponse(response search.Response) error {
 		if strings.TrimSpace(result.Title) == "" || len(result.Title) > 1000 || len(result.Snippet) > 5000 || len(result.URL) > 4096 || err != nil || parsed == nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Hostname() == "" || parsed.User != nil {
 			return searchToolError("invalid_search_result", fmt.Sprintf("result %d has invalid title, URL, or snippet", i), search.ErrInvalidResult)
 		}
+		if result.PageDate != "" {
+			parsedDate, err := time.Parse("2006-01-02", result.PageDate)
+			if err != nil || parsedDate.Format("2006-01-02") != result.PageDate {
+				return searchToolError("invalid_search_result", fmt.Sprintf("result %d has invalid page date", i), search.ErrInvalidResult)
+			}
+		}
+		if len(result.Highlights) > 5 {
+			return searchToolError("invalid_search_result", fmt.Sprintf("result %d has too many highlights", i), search.ErrInvalidResult)
+		}
+		for _, highlight := range result.Highlights {
+			if strings.TrimSpace(highlight) == "" || len(highlight) > 2000 {
+				return searchToolError("invalid_search_result", fmt.Sprintf("result %d has an invalid highlight", i), search.ErrInvalidResult)
+			}
+		}
 		if len(result.Metadata) > 16 {
 			return searchToolError("invalid_search_result", fmt.Sprintf("result %d has too much metadata", i), search.ErrInvalidResult)
 		}
@@ -354,6 +369,15 @@ func formatSearchResults(response search.Response) string {
 	var out strings.Builder
 	for i, result := range response.Results {
 		fmt.Fprintf(&out, "%d. %s\n   %s\n   %s", i+1, result.Title, result.URL, result.Snippet)
+		if provider := result.Metadata["provider"]; provider != "" {
+			fmt.Fprintf(&out, "\n   Provider: %s", strconv.Quote(provider))
+		}
+		if result.PageDate != "" {
+			fmt.Fprintf(&out, "\n   Page date: %s", result.PageDate)
+		}
+		for _, highlight := range result.Highlights {
+			fmt.Fprintf(&out, "\n   Highlight: %s", highlight)
+		}
 		if i+1 < len(response.Results) {
 			out.WriteString("\n")
 		}
